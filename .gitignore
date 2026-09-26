@@ -2,3 +2,6 @@ node_modules/
 certs/
 server.log
 .DS_Store
+.venv/
+build/
+__pycache__/

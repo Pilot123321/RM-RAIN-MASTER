@@ -4,8 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "setup:physics": "python3 -m venv .venv && .venv/bin/pip install ziglang numpy",
+    "build:physics": ".venv/bin/python tools/build.py",
+    "test": ".venv/bin/python tools/build.py && .venv/bin/python tools/test_physics.py"
   },
   "keywords": [],
   "author": "",

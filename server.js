@@ -39,7 +39,7 @@ function ensureCert() {
   return { key, crt };
 }
 
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' };
 const SKELETON_HEAD = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}</style></head><body>';
 
 function urls() {
@@ -67,7 +67,8 @@ const HW=6,WALL=6.6,RANGE=700,TAU=Math.PI*2;let RM=false;
 const clamp=(x,a,b)=>x<a?a:x>b?b:x, lerp=(a,b,t)=>a+(b-a)*t;
 const angd=(a,b)=>{let d=a-b;while(d>Math.PI)d-=TAU;while(d<-Math.PI)d+=TAU;return d;};
 ${parts.join('\n')}
-return {setCalm(v){RM=!!v;},drawNav,NAV,dSigned,wrapS,drawHeader,headerInfo,drawTracker,drawARView,
+return {setCalm(v){RM=!!v;},drawNav,NAV,dSigned,wrapS,drawHeader,headerInfo,drawTracker,drawARView,drawScreen,drawBehind,
+  setSize(w,h){cw=w;ch=h;},
   setTrack(t){N=t.N;L=t.L;DS=t.DS;PX=Float64Array.from(t.PX);PZ=Float64Array.from(t.PZ);TX=Float64Array.from(t.TX);TZ=Float64Array.from(t.TZ);H=Float64Array.from(t.H);SL=Float64Array.from(t.SL);CORNERS=t.C;},
   setWorld(w){world=w;}, ready(){return !!PX;}};
 };`;

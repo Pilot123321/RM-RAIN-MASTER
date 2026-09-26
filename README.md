@@ -5,8 +5,9 @@ show danger in the next two or three corners: stopped cars, recovery vehicles, m
 cars hidden by spray, a wall or a crest. Paired with a visor light that says "danger, now"
 without the driver looking.
 
-This repo is a playable demo: a 3D wet street circuit at night where you drive with the HUD
-on or off, plus an Android phone that works as the steering wheel.
+This repo is a playable demo: a floodlit, wet Grand Prix circuit (grandstands, pit building, gravel and
+grass run-off, light towers) where you drive with the HUD on or off, plus an Android phone that works as the
+steering wheel.
 
 ### What's in it
 
@@ -16,15 +17,31 @@ on or off, plus an Android phone that works as the steering wheel.
   plus three situations modelled on Paletti 1982, Pryce 1977 and Bianchi 2014 / Gasly 2022.
 - **Circuit builder**: upload a map or photo of a circuit, or draw one, and the track, 3D
   street and HUD are rebuilt from it.
-- **Phone wheel**: tilt an Android phone to steer, two big buttons for gas and brake, and the
-  visor HUD mirrored on the phone screen.
+- **On-board radar**: a simulated 77 GHz radar in the nose, alongside the position feed. It is
+  blocked by walls and crests, loses range in rain and spray, and its tracks show on the HUD as teal diamonds.
+- **Spray**: every car throws a plume from its rear tyres that grows with speed (about 5 m at 150 km/h and
+  10 m at 300 km/h). Following in it blurs your view, puts droplets on the visor, thickens the fog and costs
+  downforce (dirty air). The road turns shiny with a water film as the rain setting goes up.
+- **Car behind**: a mirror tag when a car is within 50 m behind you, showing which side it is on and how fast
+  it is closing.
+- **Phone wheel**: tilt an Android phone to steer, gas and brake on the sides. The phone shows the game
+  screen's HUD layout with the track edges (no 3D picture). In AR mode it uses the camera, keeps the overlay
+  level with the real horizon, and turns gas and brake into sliders (gas stays where you leave it, brake
+  springs back). Force feedback comes from the tyres through the vibration motor: impacts, lock-ups, kerbs,
+  wheelspin and slides, front scrub, and a steering-weight hum that fades as the front goes light.
 
 ### Run it
 
-Requires Node.js 18+.
+Requires Node.js 18+. The physics core is prebuilt (`public/physics.wasm`), so this is enough:
 
     npm install
     npm start
+
+To change the physics you need Python 3 (for the Zig C compiler from pip):
+
+    npm run setup:physics    # .venv with ziglang + numpy
+    npm run build:physics    # physics/*.c -> public/physics.wasm (+ build/libphysics for tests)
+    npm test                 # build, then check the C against Python reference models
 
 - Game on the computer: http://localhost:8080
 - Phone over Wi-Fi: scan the QR code in the "Phone wheel" panel. Accept the self-signed
@@ -35,6 +52,31 @@ Requires Node.js 18+.
 
 Keyboard: W/↑ throttle, S/↓/Space brake, A/D steer, X drop hazard, C camera, N HUD size,
 +/- HUD range, Esc stop.
+
+### Code layout
+
+- `physics/*.c`: the physics core in C, compiled to WebAssembly for the browser and to a native library for
+  the tests. `vehicle.c` covers the car, `radar.c` the radar sensor and tracker, `spray.c` the tyre spray.
+- `tools/`: Python. `build.py` compiles the C. `test_physics.py` checks the C against independent numpy
+  models and real-world figures. `physics.py` is the ctypes binding.
+- `public/css/`: all styling, including the spray-on-visor effect (a CSS backdrop blur driven by the simulation).
+- `public/game.html`: scene, driver model, HUD and UI (three.js). `public/wheel.html`: the phone.
+
+### Radar
+
+`physics/radar.c` works from the radar range equation: 12 dBm output, 25 dBi far beam (±9°) and 16 dBi near
+beam (±45°), 14 dB noise figure, 15 dB losses, and 5 ms coherent frames. On top of that it models:
+
+- rain attenuation in the ITU-R P.838 form, plus a wet radome
+- rain clutter, and extra loss through spray plumes
+- two-ray reflection off the road
+- Swerling-1 targets behind a CFAR detector, with detection probability Pd = Pfa^(1/(1+SINR))
+- measurement noise that depends on SNR, merging of targets that fall in the same resolution cell, and
+  returns from the barriers
+- a Kalman tracker
+
+What the radar can reach is decided by the scene: barriers, crests and cars block it. Results: a car at
+about 275 m in the dry, 190 m at 60 % rain and 150 m in a downpour; a person at about 110 m in rain.
 
 ### Physics
 
@@ -61,14 +103,13 @@ path; if it faces the wrong way add `public/assets/f1.json` with `{"yaw": 180}`.
 - F1 2022 car model by Blender458 (https://sketchfab.com/Blender458), CC BY 4.0
   (https://creativecommons.org/licenses/by/4.0/), obtained via FetchCFD. Unmodified; scaled and
   recoloured at runtime.
-- Night-city lighting: "Shanghai Bund" HDRI by Poly Haven, CC0 (`public/assets/night_city_1k.hdr`)
-- Asphalt "asphalt_track", concrete "brushed_concrete" and the "street_lamp_01" model by Poly Haven, CC0
+- Asphalt "asphalt_track" and concrete "brushed_concrete" by Poly Haven, CC0
 - three.js r128 and its example add-ons, MIT licence (`public/vendor/`)
 
 ### Files
 
 - `server.js`: static server, WebSocket relay between phone and game, QR codes, self-signed cert, adb reverse
-- `public/game.html`: the simulator, physics and HUD (three.js)
+- `public/game.html`: the simulator scene, driver model and HUD (three.js); physics in `physics/*.c`
 - `public/f1car.js`: the procedural F1 car model
 - `public/wheel.html`: the phone steering-wheel controller
 
