@@ -27,7 +27,7 @@ html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(
 .bar button{white-space:nowrap;appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:6px 10px;font:700 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;}
 .bar button.primary{background:var(--hud);color:#061016;border-color:var(--hud);}
 .bar button[aria-pressed=true]{background:var(--hud);color:#061016;}
-.status{position:fixed;right:max(10px,env(safe-area-inset-right));top:auto;bottom:max(64px,calc(env(safe-area-inset-bottom) + 56px));max-width:26%;text-align:right;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);pointer-events:none;}
+.status{position:fixed;right:max(12px,env(safe-area-inset-right));top:max(8px,env(safe-area-inset-top));bottom:auto;max-width:24%;text-align:right;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);pointer-events:none;}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--brake);margin-right:6px;vertical-align:0;}
 .dot.ok{background:var(--gas);}
 .glow{position:fixed;inset:0;pointer-events:none;opacity:0;box-shadow:inset 0 0 0 4px var(--gc),inset 0 0 60px 10px var(--gc);--gc:var(--amb);}
@@ -101,8 +101,8 @@ addEventListener('resize',fitCanvas);fitCanvas();
 function onTrack(t){if(!HUD)return;HUD.setTrack(t);trackOk=true;}
 function onState(m){msgs++;const hz=m.hz.map(h=>({type:h[0],s:h[1],lat:h[2],yaw:h[3],halfLen:h[4],halfW:h[5],vis:!!h[6],gone:!!h[7],avoid:h[8],vpass:h[9],label:h[10]}));
   const p=m.p;
-  W={player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null},
-    traffic:m.tr.map(c=>({s:c[0],lat:c[1],latV:c[2],v:c[3],vis:!!c[4],closing:!!c[5]})),hazards:hz,alert:m.a,near:m.ni>=0?hz[m.ni]:null,dNear:m.dn,
+  W={player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null,lapc:p[7]||0},
+    traffic:m.tr.map(c=>({s:c[0],lat:c[1],latV:c[2],v:c[3],vis:!!c[4],closing:!!c[5],lapc:c[6]||0})),hazards:hz,alert:m.a,near:m.ni>=0?hz[m.ni]:null,dNear:m.dn,
     vis:m.vis,flagOn:!!m.fo,sc:{flag:m.fl||null},opts:{driver:m.dr?'drive':'model'},t:m.tm};
   Wt=performance.now();if(HUD)HUD.NAV.zoom=m.z||1;}
 function drawHud(now){
