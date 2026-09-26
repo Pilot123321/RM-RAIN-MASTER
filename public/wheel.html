@@ -74,7 +74,7 @@ function connect(){
   ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=wheel');ws.binaryType='blob';
   ws.onopen=()=>{status();hello();};
   ws.onmessage=e=>{if(typeof e.data!=='string'){showFrame(e.data);return;}let m;try{m=JSON.parse(e.data);}catch(_){return;}
-    if(m.t==='games'){S.games=m.n;status();}
+    if(m.t==='games'){S.games=m.n;status();hello();}
     else if(m.t==='st'){S.running=m.r;$('bRun').textContent=m.r?'Stop':'Start';
       if(m.a===2&&S.alert!==2&&navigator.vibrate)navigator.vibrate([90,60,90]);
       if(m.w&&!S.wall&&navigator.vibrate)navigator.vibrate(40);S.wall=m.w;
@@ -86,12 +86,13 @@ let sent=0;
 function hello(){send({t:'hello',w:innerWidth,h:innerHeight,dpr:devicePixelRatio||1});}
 addEventListener('resize',()=>setTimeout(hello,200));
 function status(){const open=ws&&ws.readyState===1,ok=open&&S.games>0;$('dot').classList.toggle('ok',ok);
-  $('conn').textContent=!open?'Cannot reach '+location.host:!S.games?'Server OK, open the game on the Mac':'Linked · '+sent+' sent';}
+  $('conn').textContent=!open?'Cannot reach '+location.host:!S.games?'Server OK, open the game on the Mac':`Linked · HUD ${fps} fps${frameErr?' · '+frameErr+' bad frames':''} · v5`;
+  if(open&&S.games&&!fps&&!frameURL)$('hudwait').textContent='Linked, waiting for HUD frames. Reload the game page on the Mac.';}
 setInterval(status,500);
-let frameURL=null,framePending=false;
+let frameURL=null,framePending=false,frames=0,fps=0,frameErr=0;setInterval(()=>{fps=frames;frames=0;},1000);
 function showFrame(blob){if(framePending)return;framePending=true;const url=URL.createObjectURL(blob),img=$('hudimg');
-  img.onload=()=>{if(frameURL)URL.revokeObjectURL(frameURL);frameURL=url;framePending=false;img.hidden=false;$('hudwait').hidden=true;};
-  img.onerror=()=>{URL.revokeObjectURL(url);framePending=false;};img.src=url;}
+  img.onload=()=>{if(frameURL)URL.revokeObjectURL(frameURL);frameURL=url;framePending=false;frames++;img.hidden=false;$('hudwait').hidden=true;};
+  img.onerror=()=>{URL.revokeObjectURL(url);framePending=false;frameErr++;};img.src=url;}
 function send(o){if(ws&&ws.readyState===1){ws.send(typeof o==='string'?o:JSON.stringify(o));sent++;}}
 
 // ---- steering from gravity: the angle of "up" in the phone's screen plane

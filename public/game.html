@@ -33,7 +33,7 @@ button{font:inherit;color:inherit;}
 
 .stage{position:relative;aspect-ratio:16/9;max-width:100%;border-radius:12px;overflow:hidden;background:#05080b;border:1px solid var(--line);touch-action:none;user-select:none;-webkit-user-select:none;outline:none;}
 .stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
-#hud{mix-blend-mode:screen;}
+
 #combiner{position:absolute;pointer-events:none;border-radius:18px;background:radial-gradient(closest-side,rgba(3,9,13,.5),rgba(3,9,13,.34) 70%,rgba(3,9,13,0));}
 #combiner[hidden]{display:none;}
 .helmet{position:absolute;inset:0;pointer-events:none;background:radial-gradient(135% 125% at 50% 56%,transparent 60%,rgba(0,0,0,.62) 100%);}
@@ -1070,7 +1070,7 @@ function drawConformal(c,w,u){
   const P=w.player, items=[];
   for(const h of w.hazards){if(h.gone)continue;const d=dSigned(P.s,h.s);if(d>2&&d<460)items.push({s:h.s,lat:h.lat,y:h.height*0.55,d,hid:!h.vis,col:(w.alert===2&&h===w.near)?DAN:CAU,haz:true,sz:h.type==='marshal'?0.9:h.type==='tractor'?2.2:1.4});}
   for(const cr of w.traffic){const d=dSigned(P.s,cr.s);if(d>4&&d<300&&!cr.vis)items.push({s:cr.s,lat:cr.lat,y:0.5,d,hid:true,col:cr.closing?DAN:HUDC,haz:false,sz:1.1});}
-  c.save();c.shadowColor='rgba(110,215,255,.5)';c.shadowBlur=4*u;
+  c.save();
   for(const it of items){const p=worldPos(it.s,it.lat);_p.set(p.x,p.y+it.y,p.z);_pc.copy(_p).applyMatrix4(camera.matrixWorldInverse);if(_pc.z>-1)continue;
     _p.project(camera);const x=(_p.x*0.5+0.5)*cw,y=(-_p.y*0.5+0.5)*ch;if(x<-40||x>cw+40||y<-40||y>ch+40)continue;
     const s=clamp(it.sz*(ch/(2*Math.tan(FOV*Math.PI/360)))/(-_pc.z),7*u,70*u);
@@ -1119,7 +1119,7 @@ function navRegion(u){
 function drawNav(c,w,t,dt,u,Rin){
   const P=w.player, R=Rin||navRegion(u), hi=headerInfo(w), flash=RM?true:((t*3)%1)<0.6;
   if(!Rin)NAV.rects={panel:[R.x,R.y,R.w,R.h]};
-  c.save();c.lineCap='round';c.lineJoin='round';c.shadowColor=HC.glow;c.shadowBlur=6*u;
+  c.save();c.lineCap='round';c.lineJoin='round';
   // eyebox corner ticks
   c.strokeStyle=HC.dim;c.lineWidth=1.2*u;const tk=12*u;
   for(const [x,y,sx,sy] of [[R.x,R.y,1,1],[R.x+R.w,R.y,-1,1],[R.x,R.y+R.h,1,-1],[R.x+R.w,R.y+R.h,-1,-1]]){c.beginPath();c.moveTo(x,y+sy*tk);c.lineTo(x,y);c.lineTo(x+sx*tk,y);c.stroke();}
@@ -1164,12 +1164,17 @@ function drawNav(c,w,t,dt,u,Rin){
   const fade=fw=>1-0.88*clamp((fw-A*0.55)/(A*0.6),0,1);
   c.save();c.beginPath();c.rect(mx,my,mw,mh);c.clip();
   const st=Math.max(2,A/90), dmax=A*1.25;
-  const strip=(latF,colr,lw,dash)=>{let prev=null;c.lineWidth=lw;c.strokeStyle=colr;if(dash)c.setLineDash(dash);
+  const strip=(latF,colr,lw,dash,glow)=>{
+    const bands=[[],[],[],[]];let prev=null;
     for(let d=-D0*0.9;d<=dmax;d+=st){const p=worldPos(P.s+d,latF(d)),l=loc(p.x,p.z);if(l[1]<minFw){prev=null;continue;}const q=pr(l[0],l[1]);
-      if(prev){c.globalAlpha=fade(l[1]);c.beginPath();c.moveTo(prev[0],prev[1]);c.lineTo(q[0],q[1]);c.stroke();}prev=q;}
+      if(prev){const b=Math.min(3,Math.floor((1-fade(l[1]))*4));bands[b].push(prev[0],prev[1],q[0],q[1]);}prev=q;}
+    if(dash)c.setLineDash(dash);
+    for(const pass of glow?[0,1]:[1]){c.strokeStyle=colr;c.lineWidth=pass?lw:lw*3.2;
+      bands.forEach((seg,b)=>{if(!seg.length)return;c.globalAlpha=(1-b*0.26)*(pass?1:0.18);c.beginPath();
+        for(let i=0;i<seg.length;i+=4){c.moveTo(seg[i],seg[i+1]);c.lineTo(seg[i+2],seg[i+3]);}c.stroke();});}
     c.globalAlpha=1;c.setLineDash([]);};
   strip(()=>-WALL,HC.faint,1*u); strip(()=>WALL,HC.faint,1*u);
-  strip(()=>-HW,HC.mid,1.8*u); strip(()=>HW,HC.mid,1.8*u);
+  strip(()=>-HW,HC.mid,1.8*u,null,true); strip(()=>HW,HC.mid,1.8*u,null,true);
   // distance rungs every 50 m, fixed to the track so they stream past
   c.strokeStyle=HC.faint;c.lineWidth=1*u;
   for(let s0=Math.ceil((P.s-D0)/50)*50;s0<P.s+dmax;s0+=50){const a=worldPos(s0,-HW),b=worldPos(s0,HW),la=loc(a.x,a.z),lb=loc(b.x,b.z);if(la[1]<minFw||lb[1]<minFw)continue;const qa=pr(la[0],la[1]),qb=pr(lb[0],lb[1]);c.globalAlpha=fade(la[1]);c.beginPath();c.moveTo(qa[0],qa[1]);c.lineTo(qb[0],qb[1]);c.stroke();}
@@ -1212,7 +1217,7 @@ function drawNav(c,w,t,dt,u,Rin){
 function drawPedals(c,w,u){
   const P=w.player, x=cw/2, y=ch*0.93, showSpeed=!w.opts.hud, drive=w.opts.driver==='drive';
   if(!showSpeed&&!drive)return;
-  c.save();c.shadowColor=HC.glow;c.shadowBlur=5*u;
+  c.save();
   const bh=34*u, bw=5*u;
   if(drive){c.strokeStyle=HC.dim;c.lineWidth=1*u;c.strokeRect(x-38*u,y-bh,bw,bh);c.strokeRect(x+33*u,y-bh,bw,bh);
     c.fillStyle=HC.red;c.fillRect(x-38*u,y-bh*P.brk,bw,bh*P.brk);c.fillStyle='#7DFFB8';c.fillRect(x+33*u,y-bh*P.thr,bw,bh*P.thr);
@@ -1375,12 +1380,12 @@ const REMOTE={phones:0,steer:0,gas:0,brake:0,t:0,ws:null,live:false};
 // the phone gets its own render of the visor HUD, streamed as WebP frames
 const PH={cv:document.createElement('canvas'),busy:false,last:0};PH.cv.width=520;PH.cv.height=460;
 function phoneFrame(w,t,dt,now){
-  if(!REMOTE.live||!REMOTE.phones||PH.busy||now-PH.last<66)return;
+  if(!REMOTE.live||!REMOTE.phones||PH.busy||now-PH.last<80)return;
   const ws=REMOTE.ws;if(!ws||ws.readyState!==1||ws.bufferedAmount>250000)return;
   PH.last=now;const c=PH.cv.getContext('2d');c.setTransform(1,0,0,1,0,0);c.fillStyle='#000';c.fillRect(0,0,PH.cv.width,PH.cv.height);
   const W=PH.cv.width,H=PH.cv.height,uu=H/420;
   drawNav(c,w,t,w.opts.hud?0:dt,uu*1.05,{x:12*uu,y:10*uu,w:W-24*uu,h:H-20*uu});
-  PH.busy=true;PH.cv.toBlob(b=>{PH.busy=false;if(b&&ws.readyState===1)ws.send(b);},'image/webp',0.8);
+  PH.busy=true;PH.cv.toBlob(b=>{PH.busy=false;if(b&&ws.readyState===1)ws.send(b);},'image/jpeg',0.72);
 }
 function remoteSend(o){const ws=REMOTE.ws;if(ws&&ws.readyState===1)ws.send(JSON.stringify(o));}
 function remotePanel(){
@@ -1399,7 +1404,7 @@ async function remoteInit(){
   adb();setInterval(adb,4000);
   const connect=()=>{const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=game');REMOTE.ws=ws;
     ws.onmessage=e=>{let m;try{m=JSON.parse(e.data);}catch(_){return;}
-      if(m.t==='hello'){const hh=clamp(Math.round(m.h*Math.min(2,m.dpr||1)*0.75),300,620),ww=clamp(Math.round(hh*m.w/m.h),300,1400);PH.cv.width=ww;PH.cv.height=hh;}
+      if(m.t==='hello'){const hh=clamp(Math.round(m.h*Math.min(1.5,m.dpr||1)*0.8),280,440),ww=clamp(Math.round(hh*m.w/m.h),280,1000);PH.cv.width=ww;PH.cv.height=hh;}
       else if(m.t==='in'){REMOTE.steer=+m.s||0;REMOTE.gas=+m.g||0;REMOTE.brake=+m.b||0;REMOTE.t=performance.now();REMOTE.n=(REMOTE.n||0)+1;}
       else if(m.t==='phones'){const was=REMOTE.phones;REMOTE.phones=m.n;remotePanel();
         if(m.n>0&&was===0){if(!running&&ui.driver!=='drive'){ui.driver='drive';syncControls();applyLive();}toast('<b class="info">Phone wheel linked</b>Tilt to steer, left button brakes, right button accelerates.');}
@@ -1642,8 +1647,8 @@ function syncScene(w,t,dt){
 }
 function resize(){
   const r=stage.getBoundingClientRect();cw=Math.max(1,r.width);ch=Math.max(1,r.height);dpr=Math.min(window.devicePixelRatio||1,2);
-  renderer.setPixelRatio(Math.min(dpr,1.75));renderer.setSize(cw,ch,false);camera.aspect=cw/ch;camera.updateProjectionMatrix();
-  hud.width=Math.round(cw*dpr);hud.height=Math.round(ch*dpr);
+  if(!resize.done){renderer.setPixelRatio(Math.min(dpr,1.75));resize.done=true;}renderer.setSize(cw,ch,false);camera.aspect=cw/ch;camera.updateProjectionMatrix();
+  dpr=Math.min(dpr,1.5);hud.width=Math.round(cw*dpr);hud.height=Math.round(ch*dpr);
   sprayMat.uniforms.uScale.value=(ch*renderer.getPixelRatio())/(2*Math.tan(FOV*Math.PI/360));
 }
 const visorEl=$('visor'), flashEl=$('flash'), statusEl=$('status');
@@ -1651,7 +1656,7 @@ let tPrev=performance.now(), acc=0, simT=0, statusT=0;
 function frame(now){
   requestAnimationFrame(frame);
   const dt=Math.min(0.05,(now-tPrev)/1000);tPrev=now;simT+=dt;
-  const w=world, inp=readInput();
+  const w=world, inp=readInput(), T0=performance.now();
   if(running&&!w.done){acc+=dt;const h=1/120;while(acc>=h){step(w,h,inp);acc-=h;if(w.done)break;}}
   else acc=0;
   if(w.done&&running&&doneShownAt==null){doneShownAt=now;if(w.result.verdict==='contact'||w.result.verdict==='crash')shake=0.06;}
@@ -1666,11 +1671,23 @@ function frame(now){
   if(running&&!w.done){const rate=w.rain*w.rain;
     w.traffic.forEach((c,i)=>{const n=Math.round(rate*clamp(c.v/50,0,1.4)*110*dt+Math.random()*0.5);if(n>0){const m=trafficMeshes[i];_v.set(0,0,-1).applyQuaternion(m.quaternion).multiplyScalar(c.v);emitSpray(m,[-0.82,0.3,1.9],_v,n);emitSpray(m,[0.82,0.3,1.9],_v,n);}});
     const n=Math.round(rate*clamp(w.player.v/50,0,1.4)*28*dt+Math.random()*0.4);if(n>0){_v.set(0,0,-1).applyQuaternion(player.quaternion).multiplyScalar(w.player.v);emitSpray(player,[-0.95,0.5,-1.5],_v,n);emitSpray(player,[0.95,0.5,-1.5],_v,n);}}
+  const T1=performance.now();
   syncScene(w,simT,dt);
   updateSpray(dt,w.rain);updateRain(dt,camera.position,vel,w.rain);
+  const T2=performance.now();
   renderer.render(scene,camera);
+  const T3=performance.now();
   drawHUD(w,simT,dt);
+  const T4=performance.now();
   phoneFrame(w,simT,dt,now);
+  const T5=performance.now();
+  const PF=window.__perf||(window.__perf={sim:0,scene:0,gl:0,hud:0,phone:0,frame:0});const e=(k,v)=>PF[k]=PF[k]*0.95+v*0.05;
+  e('sim',T1-T0);e('scene',T2-T1);e('gl',T3-T2);e('hud',T4-T3);e('phone',T5-T4);e('frame',dt*1000);
+  // adaptive resolution: drop render scale when frames run long, recover when there is headroom
+  PF.adapt=(PF.adapt||0)+dt;
+  if(PF.adapt>2){PF.adapt=0;const pr=renderer.getPixelRatio(),cap=Math.min(window.devicePixelRatio||1,1.75);
+    if(PF.frame>21&&pr>0.75){renderer.setPixelRatio(Math.max(0.75,pr-0.25));resize();}
+    else if(PF.frame<15&&pr<cap){renderer.setPixelRatio(Math.min(cap,pr+0.25));resize();}}
   const o=w.opts;let va=0,vc=CAU;
   if(o.visor&&w.alert>0){if(w.alert===2){vc=DAN;va=RM?0.9:(0.35+0.65*((simT*6)%1<0.5?1:0));}else{va=0.55+(RM?0:0.12*Math.sin(simT*3));}}
   visorEl.style.setProperty('--vc',vc);visorEl.style.opacity=va.toFixed(3);
@@ -1723,6 +1740,7 @@ new ResizeObserver(resize).observe(stage);resize();
 buildTrack(defaultLoop(),'Street circuit');buildTrackMeshes();drawMini();renderScenCards();
 $('rain').value=Math.round(ui.rain*100);syncControls();resetWorld();drawLegend();
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{drawLegend();drawMini();});
+window.__dbg={scene,renderer,sprayPts,rainL,get tg(){return trackGroup;},hc};
 requestAnimationFrame(frame);
 setTimeout(renderBench,60);
 remoteInit();

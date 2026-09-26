@@ -79,14 +79,18 @@ function broadcast(set, msg, binary) { const s = binary ? msg : typeof msg === '
 function phonesChanged() { broadcast(games, { t: 'phones', n: wheels.size }); broadcast(wheels, { t: 'games', n: games.size }); }
 function attach(server) {
   const wss = new WebSocketServer({ server, path: '/ws' });
+  // keep connections alive through phone hotspots and NAT that drop quiet sockets
+  setInterval(() => { for (const c of wss.clients) { if (!c.isAlive) { c.terminate(); continue; } c.isAlive = false; try { c.ping(); } catch (e) {} } }, 15000);
   wss.on('connection', (ws, req) => {
     const role = new URL(req.url, 'http://x').searchParams.get('role') === 'wheel' ? 'wheel' : 'game';
     const set = role === 'wheel' ? wheels : games, other = role === 'wheel' ? games : wheels;
     set.add(ws); phonesChanged();
     if (role === 'game') console.log(`Game connected (${games.size})`);
-    if (role === 'wheel') console.log(`Phone wheel connected (${wheels.size})`);
+    if (role === 'wheel') console.log(`Phone wheel connected (${wheels.size}) from ${req.socket.remoteAddress}`);
     ws.on('message', (data, isBinary) => { if (role === 'wheel') inputCount++; if (isBinary) broadcast(other, data, true); else broadcast(other, data.toString()); });
-    ws.on('close', () => { set.delete(ws); phonesChanged(); if (role === 'wheel') console.log(`Phone wheel disconnected (${wheels.size})`); });
+    const born = Date.now(), who = req.socket.remoteAddress;
+    ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true; });
+    ws.on('close', (code) => { set.delete(ws); phonesChanged(); if (role === 'wheel') console.log(`Phone wheel disconnected (${wheels.size}) from ${who} after ${((Date.now() - born) / 1000).toFixed(1)} s, code ${code}`); });
   });
 }
 
