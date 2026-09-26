@@ -36,6 +36,19 @@ Requires Node.js 18+.
 Keyboard: W/↑ throttle, S/↓/Space brake, A/D steer, X drop hazard, C camera, N HUD size,
 +/- HUD range, Esc stop.
 
+### Physics
+
+Your car is a dynamic bicycle model in track coordinates (Liniger, Domahidi & Morari 2015) with:
+- wheel-speed dynamics per axle: rear-wheel drive through an 8-speed gearbox (engine inertia
+  reflected through the gear), brakes on both axles, so wheelspin and lock-ups happen
+- combined-slip Magic Formula tyres, "theoretical slip" form (Pacejka, *Tire and Vehicle Dynamics*,
+  2012; as used by Velenis, Tsiotras & Lu 2007), with a sliding-friction floor for locked or
+  drifting tyres
+- tyre load sensitivity, lateral and longitudinal load transfer, aero downforce and drag,
+  tyre relaxation length, aquaplaning, slippery wet kerbs
+- drift equilibria as in Hindiyeh & Gerdes 2014: power holds the rear slip, countersteer balances it
+- assists (on by default): traction control, ABS, stability control. Turn them off to drift.
+
 ### Car model
 
 Other cars and your car in the chase view use a real F1 2022 model (`public/assets/f1.glb`),
