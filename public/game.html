@@ -34,6 +34,7 @@ button{font:inherit;color:inherit;}
 .stage{position:relative;aspect-ratio:16/9;max-width:100%;border-radius:12px;overflow:hidden;background:#05080b;border:1px solid var(--line);touch-action:none;user-select:none;-webkit-user-select:none;outline:none;}
 .stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
 
+  .visorframe{position:absolute;inset:3% 1.6% 4%;border-radius:12% / 24%;pointer-events:none;box-shadow:0 0 0 100vmax rgba(3,5,7,.9),inset 0 0 36px 12px rgba(0,0,0,.55);}
 #combiner{position:absolute;pointer-events:none;border-radius:18px;background:radial-gradient(closest-side,rgba(3,9,13,.5),rgba(3,9,13,.34) 70%,rgba(3,9,13,0));}
 #combiner[hidden]{display:none;}
 .helmet{position:absolute;inset:0;pointer-events:none;background:radial-gradient(135% 125% at 50% 56%,transparent 60%,rgba(0,0,0,.62) 100%);}
@@ -236,6 +237,7 @@ td.n{color:var(--faint);}
   <section class="stage" id="stage" aria-label="Driver's view simulation" tabindex="-1">
     <canvas id="gl"></canvas>
     <div class="helmet"></div>
+    <div class="visorframe" aria-hidden="true"></div>
     <div id="combiner" aria-hidden="true"></div>
     <canvas id="hud"></canvas>
     <div id="visor" aria-hidden="true"></div>
@@ -1090,10 +1092,12 @@ function bracket(c,x,y,s,col,dashed,u){
   c.moveTo(x+s,y+s-k);c.lineTo(x+s,y+s);c.lineTo(x+s-k,y+s);
   c.moveTo(x-s+k,y+s);c.lineTo(x-s,y+s);c.lineTo(x-s,y+s-k);c.stroke();c.setLineDash([]);
 }
+// project a point on the track into the 3D driver view
+function projCam(s,lat,yOff){const p=worldPos(s,lat);_p.set(p.x,p.y+yOff,p.z);_pc.copy(_p).applyMatrix4(camera.matrixWorldInverse);if(_pc.z>-1.2)return null;_p.project(camera);return [(_p.x*0.5+0.5)*cw,(-_p.y*0.5+0.5)*ch];}
 function drawConformal(c,w,u){
   const P=w.player, items=[];
+  if(ui.cam==='cockpit'){drawLadder(c,w,projCam,u);drawTargets(c,w,projCam,u,260);drawHeadingTape(c,w,cw/2,ch*0.2,Math.min(cw*0.42,560*u),u);}
   for(const h of w.hazards){if(h.gone)continue;const d=dSigned(P.s,h.s);if(d>2&&d<460)items.push({s:h.s,lat:h.lat,y:h.height*0.55,d,hid:!h.vis,col:(w.alert===2&&h===w.near)?DAN:CAU,haz:true,sz:h.type==='marshal'?0.9:h.type==='tractor'?2.2:1.4});}
-  for(const cr of w.traffic){const d=dSigned(P.s,cr.s);if(d>4&&d<300&&!cr.vis)items.push({s:cr.s,lat:cr.lat,y:0.5,d,hid:true,col:cr.closing?DAN:HUDC,haz:false,sz:1.1});}
   c.save();
   for(const it of items){const p=worldPos(it.s,it.lat);_p.set(p.x,p.y+it.y,p.z);_pc.copy(_p).applyMatrix4(camera.matrixWorldInverse);if(_pc.z>-1)continue;
     _p.project(camera);const x=(_p.x*0.5+0.5)*cw,y=(-_p.y*0.5+0.5)*ch;if(x<-40||x>cw+40||y<-40||y>ch+40)continue;
@@ -1173,19 +1177,9 @@ function drawTracker(c,w,x,y,W,H,u,flash){
   c.fillStyle=HC.pri;c.font=mono(10*u);c.fillText('YOU',px,ly-13*u);
   c.restore();
 }
-function navRegion(u){
-  const w=Math.round(clamp(cw*(NAV.big?0.5:0.34),190,NAV.big?640:450)), h=Math.round(Math.min(w*1.0,ch*0.84));
-  return {x:cw-w-Math.max(10,18*u), y:Math.max(10,ch*0.07), w, h};
-}
-function drawNav(c,w,t,dt,u,Rin){
-  const P=w.player, R=Rin||navRegion(u), hi=headerInfo(w), flash=RM?true:((t*3)%1)<0.6;
-  if(!Rin)NAV.rects={panel:[R.x,R.y,R.w,R.h]};
-  c.save();c.lineCap='round';c.lineJoin='round';
-  // eyebox corner ticks
-  c.strokeStyle=HC.dim;c.lineWidth=1.2*u;const tk=12*u;
-  for(const [x,y,sx,sy] of [[R.x,R.y,1,1],[R.x+R.w,R.y,-1,1],[R.x,R.y+R.h,1,-1],[R.x+R.w,R.y+R.h,-1,-1]]){c.beginPath();c.moveTo(x,y+sy*tk);c.lineTo(x,y);c.lineTo(x+sx*tk,y);c.stroke();}
-  // --- header: distance | instruction
-  const hh=Math.round(R.h*0.15), hy=R.y+hh*0.55, col=hi.col;
+function drawHeader(c,w,R,u,flash,hi,hhIn){
+  c.save();
+  const hh=hhIn||Math.round(R.h*0.15), hy=R.y+hh*0.55, col=hi.col;
   const dtxt=hi.kind==='none'?'—':hi.dist<5?'NOW':String(Math.round(hi.dist/10)*10);
   c.fillStyle=col;c.textBaseline='middle';c.textAlign='left';
   c.font=`700 ${hh*0.52}px "B612 Mono", monospace`;const dw=c.measureText(dtxt).width;
@@ -1201,6 +1195,71 @@ function drawNav(c,w,t,dt,u,Rin){
   if(hi.kind==='corner'){const tw=c.measureText(tt).width;hudTag(c,tx+tw+hh*0.42,hy,'T'+hi.corner.n,col,u,hh*0.18/u);}
   if(hi.kind==='haz'&&w.flagOn){const fx=R.x+R.w-12*u;c.strokeStyle='#FFD21A';c.lineWidth=1.5*u;c.strokeRect(fx-hh*0.22,hy-hh*0.2,hh*0.22,hh*0.34);if(w.sc.flag==='double')c.strokeRect(fx-hh*0.55,hy-hh*0.2,hh*0.22,hh*0.34);}
   c.strokeStyle=col;c.globalAlpha=0.55;c.lineWidth=1.2*u;c.beginPath();c.moveTo(R.x,R.y+hh);c.lineTo(R.x+R.w,R.y+hh);c.stroke();c.globalAlpha=1;
+  c.restore();
+  return hh;
+}
+// --- AR overlay pieces (conformal: drawn where things are in the view)
+const THREAT_COL={red:'#FF4B3A',amber:'#FFC247',green:'#4BE37F',teal:'#39E6B4'};
+function threatOf(w,c){const P=w.player,d=dSigned(P.s,c.s),dl=Math.abs(c.lat-P.lat),cl=P.v-c.v;
+  if(d>0&&d<140&&dl<2.4&&((cl>3&&d/cl<3.2)||d<22))return 'red';
+  if((d>0&&d<220&&dl<3.4)||Math.abs(d)<10||(!c.vis&&d>0&&d<220))return 'amber';
+  return 'green';}
+function laneLead(w){const P=w.player;let best=null,bd=1e9;for(const c of w.traffic){const d=dSigned(P.s,c.s);if(d>4&&d<220&&Math.abs(c.lat-P.lat)<2.6&&d<bd){bd=d;best=c;}}return best?{c:best,d:bd}:null;}
+function drawLadder(c,w,proj,u){
+  const P=w.player,lead=laneLead(w);if(!lead)return;const end=lead.d-5;if(end<8)return;
+  const th=threatOf(w,lead.c),col=th==='red'?THREAT_COL.red:th==='amber'&&lead.d<60?THREAT_COL.amber:THREAT_COL.teal;
+  c.save();c.fillStyle=col;
+  for(let d=4;d<end;d+=4.5){const k=d/end,lat=lerp(P.lat,lead.c.lat,k),s0=P.s+d;
+    const a=proj(s0,lat-0.95,0.03),b=proj(s0,lat+0.95,0.03),a2=proj(s0+1.5,lat-0.8,0.03),b2=proj(s0+1.5,lat+0.8,0.03),m=proj(s0+2.1,lat,0.03);
+    if(!a||!b||!a2||!b2||!m)continue;c.globalAlpha=0.82*(1-k*0.55);
+    c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.lineTo(b2[0],b2[1]);c.lineTo(m[0],m[1]);c.lineTo(a2[0],a2[1]);c.closePath();c.fill();}
+  c.globalAlpha=1;
+  const q=proj(P.s+end*0.42,lerp(P.lat,lead.c.lat,0.42)+1.1,0.03);
+  if(q){const tx=q[0]+26*u,ty=q[1]-22*u,lab=Math.round(lead.d)+' m';c.strokeStyle=col;c.lineWidth=1.6*u;c.beginPath();c.moveTo(q[0]+4*u,q[1]);c.lineTo(q[0]+14*u,q[1]);c.lineTo(tx,ty);c.lineTo(tx+56*u,ty);c.stroke();
+    c.fillStyle=col;c.font=`700 ${15*u}px "B612 Mono", monospace`;c.textAlign='left';c.textBaseline='bottom';c.fillText(lab,tx+4*u,ty-3*u);}
+  c.restore();}
+function arBracket(c,x0,y0,x1,y1,col,dashed,u,tri){
+  const k=Math.max(5*u,Math.min((x1-x0),(y1-y0))*0.3);c.strokeStyle=col;c.lineWidth=2*u;if(dashed)c.setLineDash([4*u,3*u]);
+  c.beginPath();c.moveTo(x0,y0+k);c.lineTo(x0,y0);c.lineTo(x0+k,y0);c.moveTo(x1-k,y0);c.lineTo(x1,y0);c.lineTo(x1,y0+k);
+  c.moveTo(x1,y1-k);c.lineTo(x1,y1);c.lineTo(x1-k,y1);c.moveTo(x0+k,y1);c.lineTo(x0,y1);c.lineTo(x0,y1-k);c.stroke();c.setLineDash([]);
+  if(tri){const cx=(x0+x1)/2,s=Math.max(7*u,Math.min(13*u,(x1-x0)*0.22));c.fillStyle=col;c.beginPath();c.moveTo(cx-s,y0-s*1.7);c.lineTo(cx+s,y0-s*1.7);c.lineTo(cx,y0-s*0.4);c.closePath();c.fill();}}
+function drawTargets(c,w,proj,u,maxD){
+  const P=w.player;c.save();
+  for(const t of w.traffic){const d=dSigned(P.s,t.s);if(d<4||d>maxD)continue;
+    const l=proj(t.s,t.lat-1.15,0),r=proj(t.s,t.lat+1.15,0),tp=proj(t.s,t.lat,1.25);if(!l||!r||!tp)continue;
+    let x0=Math.min(l[0],r[0]),x1=Math.max(l[0],r[0]),y1=Math.max(l[1],r[1]),y0=tp[1];const minW=12*u;if(x1-x0<minW){const m=(x0+x1)/2;x0=m-minW/2;x1=m+minW/2;}if(y1-y0<minW*0.6)y0=y1-minW*0.6;
+    const pad=(x1-x0)*0.12;arBracket(c,x0-pad,y0-pad,x1+pad,y1+pad*0.5,THREAT_COL[threatOf(w,t)],!t.vis,u,true);}
+  c.restore();}
+function drawHeadingTape(c,w,cx,y,W,u){
+  const P=w.player,psi=(P.psi||0)*180/Math.PI,col='rgba(220,240,255,.85)';c.save();c.strokeStyle=col;c.fillStyle=col;c.lineWidth=1.4*u;
+  const gap=16*u,half=W/2;c.beginPath();c.moveTo(cx-half,y+10*u);c.quadraticCurveTo(cx-half*0.55,y,cx-gap,y);c.moveTo(cx+gap,y);c.quadraticCurveTo(cx+half*0.55,y,cx+half,y+10*u);c.stroke();
+  for(let a=-40;a<=40;a+=5){const deg=a-(psi%5);const x=cx+deg/40*half*0.9;if(Math.abs(x-cx)<gap+2*u)continue;const big=Math.round((a+psi))%15===0;c.beginPath();c.moveTo(x,y);c.lineTo(x,y+(big?7:4)*u);c.stroke();}
+  c.beginPath();c.moveTo(cx-8*u,y+8*u);c.lineTo(cx+8*u,y+8*u);c.lineTo(cx,y-5*u);c.closePath();c.stroke();
+  const hi=headerInfo(w);c.font=`700 ${9*u}px "B612 Mono", monospace`;c.textBaseline='bottom';
+  if(hi.kind==='corner'){const t=`T${hi.corner.n} ${Math.round(hi.dist)} M`;if(hi.corner.sg>0){c.textAlign='right';c.fillText(t+' ▸',cx+half,y-3*u);}else{c.textAlign='left';c.fillText('◂ '+t,cx-half,y-3*u);}}
+  else if(hi.kind==='haz'){c.fillStyle=w.alert===2?THREAT_COL.red:THREAT_COL.amber;c.textAlign='center';c.fillText(hi.text.toUpperCase()+' '+Math.round(hi.dist)+' M',cx,y-8*u);}
+  c.restore();}
+// phone AR: pinhole camera at driver eye height, heading-stabilised, rolled to match how the phone is tilted
+function drawARView(c,w,t,u,Wd,Hd,roll,hfovDeg){
+  const E=egoPose(w),rx=-E.fz,rz=E.fx,f=(Wd/2)/Math.tan(hfovDeg*Math.PI/360),cx=Wd/2,hy=Hd*0.46,camH=1.05;
+  const proj=(s,lat,yOff)=>{const p=worldPos(s,lat),dx=p.x-E.x,dz=p.z-E.z,rt=dx*rx+dz*rz,fw=dx*E.fx+dz*E.fz;if(fw<1.5)return null;return [cx+f*rt/fw,hy+f*(camH-yOff)/fw];};
+  c.save();c.translate(Wd/2,Hd/2);c.rotate(-roll);c.translate(-Wd/2,-Hd/2);
+  drawLadder(c,w,proj,u);drawTargets(c,w,proj,u,260);
+  for(const h of w.hazards){if(h.gone)continue;const d=dSigned(w.player.s,h.s);if(d<3||d>400)continue;const l=proj(h.s,h.lat-h.halfW-0.3,0),r=proj(h.s,h.lat+h.halfW+0.3,0),tp=proj(h.s,h.lat,h.height);if(!l||!r||!tp)continue;
+    const col=w.alert===2&&h===w.near?THREAT_COL.red:THREAT_COL.amber;arBracket(c,Math.min(l[0],r[0]),tp[1],Math.max(l[0],r[0]),Math.max(l[1],r[1]),col,!h.vis,u,false);hazIcon(c,h.type,(l[0]+r[0])/2,tp[1]-16*u,16*u,col,true);}
+  c.restore();}
+function navRegion(u){
+  const w=Math.round(clamp(cw*(NAV.big?0.5:0.34),190,NAV.big?640:450)), h=Math.round(Math.min(w*1.0,ch*0.84));
+  return {x:cw-w-Math.max(12,cw*0.045), y:Math.max(12,ch*0.1), w, h:Math.min(h,ch*0.78)};
+}
+function drawNav(c,w,t,dt,u,Rin){
+  const P=w.player, R=Rin||navRegion(u), hi=headerInfo(w), flash=RM?true:((t*3)%1)<0.6;
+  if(!Rin)NAV.rects={panel:[R.x,R.y,R.w,R.h]};
+  c.save();c.lineCap='round';c.lineJoin='round';
+  // eyebox corner ticks
+  c.strokeStyle=HC.dim;c.lineWidth=1.2*u;const tk=12*u;
+  for(const [x,y,sx,sy] of [[R.x,R.y,1,1],[R.x+R.w,R.y,-1,1],[R.x,R.y+R.h,1,-1],[R.x+R.w,R.y+R.h,-1,-1]]){c.beginPath();c.moveTo(x,y+sy*tk);c.lineTo(x,y);c.lineTo(x+sx*tk,y);c.stroke();}
+  const hh=drawHeader(c,w,R,u,flash,hi), col=hi.col;
   // --- lane guidance
   const showLanes=hi.kind==='haz'||(hi.kind==='corner'&&hi.dist<220), lh=showLanes?Math.round(R.h*0.11):0;
   if(showLanes){const lanes=[-4,0,4],aw=lh*0.95;

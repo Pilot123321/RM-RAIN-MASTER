@@ -13,6 +13,8 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(--mono);overflow:hidden;
   touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;overscroll-behavior:none;}
+#cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000;}
+#cam[hidden]{display:none;}
 #hudcv{position:fixed;inset:0;width:100%;height:100%;display:block;}
 #hudwait[hidden]{display:none;}
 #hudwait{position:fixed;inset:0;display:grid;place-items:center;margin:0;color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:center;padding:0 30%;}
@@ -23,8 +25,8 @@ html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(
 #brake{--c:var(--brake);left:0;border-right-width:1px;border-right-color:color-mix(in srgb,var(--brake) 35%,transparent);padding-left:env(safe-area-inset-left);}
 #gas{--c:var(--gas);right:0;border-left-width:1px;border-left-color:color-mix(in srgb,var(--gas) 35%,transparent);padding-right:env(safe-area-inset-right);}
 .pedal.on{background:color-mix(in srgb,var(--c) 30%,transparent);}
-.bar{position:fixed;left:27%;right:27%;bottom:max(8px,env(safe-area-inset-bottom));display:flex;justify-content:center;align-items:center;gap:5px;flex-wrap:nowrap;overflow:hidden;}
-.bar button{white-space:nowrap;appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:6px 10px;font:700 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;}
+.bar{position:fixed;left:26%;right:26%;bottom:max(8px,env(safe-area-inset-bottom));display:flex;justify-content:center;align-items:center;gap:5px;flex-wrap:nowrap;overflow:hidden;}
+.bar button{white-space:nowrap;appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:6px clamp(5px,1vw,10px);font:700 clamp(9px,1.15vw,10.5px) var(--mono);letter-spacing:.03em;text-transform:uppercase;}
 .bar button.primary{background:var(--hud);color:#061016;border-color:var(--hud);}
 .bar button[aria-pressed=true]{background:var(--hud);color:#061016;}
 .status{position:fixed;right:max(12px,env(safe-area-inset-right));top:max(8px,env(safe-area-inset-top));bottom:auto;max-width:24%;text-align:right;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);pointer-events:none;}
@@ -41,13 +43,14 @@ html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(
 </style>
 </head>
 <body>
+<video id="cam" playsinline muted autoplay hidden></video>
 <canvas id="hudcv" aria-label="Visor HUD"></canvas>
 <p id="hudwait">The visor HUD shows here once the game is open on the Mac</p>
 <div class="pedal" id="brake">Brake</div>
 <div class="pedal" id="gas">Gas</div>
 <div class="status"><span class="dot" id="dot"></span><span id="conn">Connecting…</span> · <span id="ang">0°</span></div>
 <div class="bar">
-  <button id="bCenter">Center</button><button id="bRun" class="primary">Start</button><button id="bDrop">Hazard</button><button id="bCam">Camera</button>
+  <button id="bCenter">Center</button><button id="bRun" class="primary">Start</button><button id="bDrop">Hazard</button><button id="bCam">View</button><button id="bAR">AR</button>
   <button id="bLock">Lock 45°</button><button id="bInv">Invert</button>
 </div>
 <div class="glow" id="glow"></div>
@@ -94,7 +97,8 @@ function status(){const open=ws&&ws.readyState===1,ok=open&&S.games>0;$('dot').c
   if(!HUD)$('hudwait').textContent='Could not load the HUD code from the Mac. Reload this page.';}
 setInterval(status,500);
 // ---- native HUD: same drawing code as the game, fed by track + state messages
-const HUD=window.makeHUD?window.makeHUD():null, cv=$('hudcv'), cx=cv.getContext('2d');
+const HUD=window.makeHUD?window.makeHUD():null, cv=$('hudcv'), cx=cv.getContext('2d'), video=$('cam');
+let arOn=false,camStream=null;
 let frames=0,fps=0,msgs=0,W=null,Wt=0,trackOk=false;setInterval(()=>{fps=frames;frames=0;},1000);
 function fitCanvas(){const d=Math.min(devicePixelRatio||1,2);cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);}
 addEventListener('resize',fitCanvas);fitCanvas();
@@ -105,8 +109,16 @@ function onState(m){msgs++;const hz=m.hz.map(h=>({type:h[0],s:h[1],lat:h[2],yaw:
     traffic:m.tr.map(c=>({s:c[0],lat:c[1],latV:c[2],v:c[3],vis:!!c[4],closing:!!c[5],lapc:c[6]||0})),hazards:hz,alert:m.a,near:m.ni>=0?hz[m.ni]:null,dNear:m.dn,
     vis:m.vis,flagOn:!!m.fo,sc:{flag:m.fl||null},opts:{driver:m.dr?'drive':'model'},t:m.tm};
   Wt=performance.now();if(HUD)HUD.NAV.zoom=m.z||1;}
+// AR: the rear camera is the background, the overlay is drawn where things would be in front of you
+async function setAR(on){
+  if(on){try{camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+      video.srcObject=camStream;video.hidden=false;await video.play().catch(()=>{});arOn=true;}
+    catch(e){arOn=false;$('hudwait').hidden=false;$('hudwait').textContent=!window.isSecureContext?'The camera needs the https:// address or the USB address.':'Camera access was refused or is not available.';setTimeout(status,3000);}}
+  else{arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.hidden=true;video.srcObject=null;}
+  $('bAR').setAttribute('aria-pressed',arOn?'true':'false');}
 function drawHud(now){
-  cx.setTransform(1,0,0,1,0,0);cx.fillStyle='#000';cx.fillRect(0,0,cv.width,cv.height);
+  cx.setTransform(1,0,0,1,0,0);
+  if(arOn)cx.clearRect(0,0,cv.width,cv.height);else{cx.fillStyle='#000';cx.fillRect(0,0,cv.width,cv.height);}
   if(!HUD||!trackOk||!W)return;
   const dt=Math.min(0.1,(now-(drawHud.last||now))/1000);drawHud.last=now;
   // dead reckoning between 30 Hz updates, so motion is smooth at 60 fps
@@ -117,7 +129,15 @@ function drawHud(now){
   if(W.near)view.dNear=W.dNear-P.v*e;
   HUD.setWorld(view);
   const H=cv.height,Wd=cv.width,u=H/420;
-  HUD.drawNav(cx,view,now/1000,dt,u*1.05,{x:12*u,y:10*u,w:Wd-24*u,h:H-20*u});
+  if(arOn){
+    const uu=u*1.05,flash=((now/1000)*3%1)<0.6,roll=(S.hasMotion?S.angle*(S.inv?-1:1):0)*Math.PI/180;
+    HUD.drawARView(cx,view,now/1000,uu,Wd,H,roll,68);
+    // readable bands for the header and lap tracker over a bright camera image
+    const bx=Wd*0.27,bw=Wd*0.46,hh=H*0.12,th=H*0.14,ty=H-H*0.2-th;
+    cx.fillStyle='rgba(0,0,0,.38)';cx.fillRect(bx,0,bw,hh+10*u);cx.fillRect(bx,ty-4*u,bw,th+8*u);
+    HUD.drawHeader(cx,view,{x:bx,y:4*u,w:bw,h:H},uu,flash,HUD.headerInfo(view),hh);
+    HUD.drawTracker(cx,view,bx,ty,bw,th,uu,flash);
+  } else HUD.drawNav(cx,view,now/1000,dt,u*1.05,{x:12*u,y:10*u,w:Wd-24*u,h:H-20*u});
   frames++;
 }
 function send(o){if(ws&&ws.readyState===1){ws.send(typeof o==='string'?o:JSON.stringify(o));sent++;}}
@@ -155,6 +175,7 @@ $('bCenter').onclick=recenter;
 $('bRun').onclick=()=>send({t:'cmd',c:S.running?'stop':'start'});
 $('bDrop').onclick=()=>send({t:'cmd',c:'drop'});
 $('bCam').onclick=()=>send({t:'cmd',c:'cam'});
+$('bAR').onclick=()=>setAR(!arOn);
 function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttribute('aria-pressed',S.inv?'true':'false');
   try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv2',S.inv?'1':'0');}catch(e){}}
 $('bLock').onclick=()=>{S.lock=S.lock===30?45:S.lock===45?70:30;syncOpts();};
