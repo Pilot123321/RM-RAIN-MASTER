@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0A0E13">
+<title>Radar Wheel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=B612+Mono:wght@400;700&family=Saira+Condensed:wght@800&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#000;--panel:rgba(12,18,24,.72);--line:rgba(196,248,255,.28);--ink:#E3EBF0;--muted:#8B9BA8;--hud:#C4F8FF;--gas:#35D98A;--brake:#FF4B3A;--amb:#FFC247;
+  --mono:"B612 Mono",ui-monospace,Menlo,monospace;--disp:"Saira Condensed","Arial Narrow",sans-serif;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(--mono);overflow:hidden;
+  touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;overscroll-behavior:none;}
+#hudimg{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;display:block;}
+#hudimg[hidden],#hudwait[hidden]{display:none;}
+#hudwait{position:fixed;inset:0;display:grid;place-items:center;margin:0;color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:center;padding:0 30%;}
+/* see-through pedal zones over the HUD */
+.pedal{position:fixed;top:0;bottom:0;width:27%;display:flex;align-items:flex-end;justify-content:center;padding-bottom:max(14px,env(safe-area-inset-bottom));
+  font:800 clamp(22px,5vw,40px)/1 var(--disp);letter-spacing:.06em;text-transform:uppercase;color:var(--c);
+  background:linear-gradient(to top,color-mix(in srgb,var(--c) 14%,transparent),transparent 45%);border:0 solid var(--c);transition:background .06s;}
+#brake{--c:var(--brake);left:0;border-right-width:1px;border-right-color:color-mix(in srgb,var(--brake) 35%,transparent);padding-left:env(safe-area-inset-left);}
+#gas{--c:var(--gas);right:0;border-left-width:1px;border-left-color:color-mix(in srgb,var(--gas) 35%,transparent);padding-right:env(safe-area-inset-right);}
+.pedal.on{background:color-mix(in srgb,var(--c) 30%,transparent);}
+.bar{position:fixed;left:27%;right:27%;bottom:max(8px,env(safe-area-inset-bottom));display:flex;justify-content:center;align-items:center;gap:5px;flex-wrap:nowrap;overflow:hidden;}
+.bar button{appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:6px 10px;font:700 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;}
+.bar button.primary{background:var(--hud);color:#061016;border-color:var(--hud);}
+.bar button[aria-pressed=true]{background:var(--hud);color:#061016;}
+.status{position:fixed;left:27%;right:27%;top:max(6px,env(safe-area-inset-top));text-align:center;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);pointer-events:none;}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--brake);margin-right:6px;vertical-align:0;}
+.dot.ok{background:var(--gas);}
+.glow{position:fixed;inset:0;pointer-events:none;opacity:0;box-shadow:inset 0 0 0 4px var(--gc),inset 0 0 60px 10px var(--gc);--gc:var(--amb);}
+.sheet{position:fixed;inset:0;display:grid;place-items:center;background:rgba(5,8,11,.94);z-index:10;padding:24px;text-align:center;}
+.sheet[hidden]{display:none;}
+.sheet div{display:grid;gap:14px;max-width:520px;justify-items:center;}
+.sheet h1{margin:0;font:800 40px/1 var(--disp);text-transform:uppercase;letter-spacing:.02em;}
+.sheet p{margin:0;color:#B7C4CE;font-size:13px;line-height:1.5;}
+.sheet button{appearance:none;border:0;border-radius:12px;background:var(--hud);color:#061016;font:700 15px var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:16px 28px;}
+.warn{color:var(--amb)!important;}
+</style>
+</head>
+<body>
+<img id="hudimg" alt="Visor HUD" hidden>
+<p id="hudwait">The visor HUD shows here once the game is open on the Mac</p>
+<div class="pedal" id="brake">Brake</div>
+<div class="pedal" id="gas">Gas</div>
+<div class="status"><span class="dot" id="dot"></span><span id="conn">Connecting…</span> · <span id="ang">0°</span></div>
+<div class="bar">
+  <button id="bCenter">Center</button><button id="bRun" class="primary">Start</button><button id="bDrop">Hazard</button><button id="bCam">Camera</button>
+  <button id="bLock">Lock 45°</button><button id="bInv">Invert</button>
+</div>
+<div class="glow" id="glow"></div>
+<div class="sheet" id="sheet">
+  <div>
+    <h1>Radar Wheel</h1>
+    <p>Hold the phone sideways like a steering wheel, screen facing you. Tilt it left and right to steer. Left thumb brakes, right thumb accelerates.</p>
+    <button id="go">Tap to start</button>
+    <p id="sheetMsg"></p>
+  </div>
+</div>
+<script>
+(function(){
+'use strict';
+const $=id=>document.getElementById(id), clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const angd=(a,b)=>{let d=a-b;while(d>180)d-=360;while(d<-180)d+=360;return d;};
+const iOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+let lockSaved=45,invSaved=false;try{lockSaved=+localStorage.getItem('rw.lock')||45;invSaved=localStorage.getItem('rw.inv2')==='1';}catch(e){}
+const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,lock:lockSaved,inv:invSaved,touchSteer:null,games:0,running:false,alert:0};
+
+// ---- connection
+let ws=null;
+function connect(){
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=wheel');ws.binaryType='blob';
+  ws.onopen=()=>{status();hello();};
+  ws.onmessage=e=>{if(typeof e.data!=='string'){showFrame(e.data);return;}let m;try{m=JSON.parse(e.data);}catch(_){return;}
+    if(m.t==='games'){S.games=m.n;status();}
+    else if(m.t==='st'){S.running=m.r;$('bRun').textContent=m.r?'Stop':'Start';
+      if(m.a===2&&S.alert!==2&&navigator.vibrate)navigator.vibrate([90,60,90]);
+      if(m.w&&!S.wall&&navigator.vibrate)navigator.vibrate(40);S.wall=m.w;
+      S.alert=m.a;const g=$('glow');g.style.setProperty('--gc',m.a===2?'var(--brake)':'var(--amb)');g.style.opacity=m.a?(m.a===2?1:0.55):0;}};
+  ws.onclose=()=>{S.games=0;status();setTimeout(connect,1000);};
+  ws.onerror=()=>{};
+}
+let sent=0;
+function hello(){send({t:'hello',w:innerWidth,h:innerHeight,dpr:devicePixelRatio||1});}
+addEventListener('resize',()=>setTimeout(hello,200));
+function status(){const open=ws&&ws.readyState===1,ok=open&&S.games>0;$('dot').classList.toggle('ok',ok);
+  $('conn').textContent=!open?'Cannot reach '+location.host:!S.games?'Server OK, open the game on the Mac':'Linked · '+sent+' sent';}
+setInterval(status,500);
+let frameURL=null,framePending=false;
+function showFrame(blob){if(framePending)return;framePending=true;const url=URL.createObjectURL(blob),img=$('hudimg');
+  img.onload=()=>{if(frameURL)URL.revokeObjectURL(frameURL);frameURL=url;framePending=false;img.hidden=false;$('hudwait').hidden=true;};
+  img.onerror=()=>{URL.revokeObjectURL(url);framePending=false;};img.src=url;}
+function send(o){if(ws&&ws.readyState===1){ws.send(typeof o==='string'?o:JSON.stringify(o));sent++;}}
+
+// ---- steering from gravity: the angle of "up" in the phone's screen plane
+function onMotion(e){
+  const a=e.accelerationIncludingGravity;if(!a||a.x==null)return;
+  let ax=a.x,ay=a.y;if(iOS){ax=-ax;ay=-ay;}
+  S.gx+=(ax-S.gx)*0.35;S.gy+=(ay-S.gy)*0.35;
+  if(Math.hypot(S.gx,S.gy)<2.5)return;           // phone lying flat: hold last angle
+  S.hasMotion=true;
+  const ang=Math.atan2(S.gx,S.gy)*180/Math.PI;
+  if(S.neutral==null)S.neutral=ang;
+  let d=angd(ang,S.neutral);if(S.inv)d=-d;
+  S.angle=d;
+}
+function recenter(){if(S.hasMotion)S.neutral=Math.atan2(S.gx,S.gy)*180/Math.PI;S.touchSteer=S.touchSteer==null?null:0;}
+
+// ---- pedals (multi-touch)
+function pedal(el,key){
+  const on=v=>{S[key]=v;el.classList.toggle('on',!!v);if(v&&navigator.vibrate)navigator.vibrate(12);};
+  el.addEventListener('pointerdown',e=>{e.preventDefault();el.setPointerCapture(e.pointerId);on(1);});
+  for(const ev of ['pointerup','pointercancel','lostpointercapture'])el.addEventListener(ev,()=>on(0));
+}
+pedal($('gas'),'gas');pedal($('brake'),'brake');
+
+// ---- touch steering fallback: drag sideways on the wheel
+const wb=$('hudimg').parentNode===document.body?document.body:$('hudimg');let dragX=null;
+wb.addEventListener('pointerdown',e=>{if(S.hasMotion||e.target.closest('.pedal,.bar,.sheet'))return;dragX=e.clientX;wb.setPointerCapture(e.pointerId);S.touchSteer=0;});
+wb.addEventListener('pointermove',e=>{if(dragX==null)return;S.touchSteer=clamp((e.clientX-dragX)/(innerWidth*0.25),-1,1);});
+for(const ev of ['pointerup','pointercancel'])wb.addEventListener(ev,()=>{dragX=null;S.touchSteer=0;});
+
+// ---- buttons
+$('bCenter').onclick=recenter;
+$('bRun').onclick=()=>send({t:'cmd',c:S.running?'stop':'start'});
+$('bDrop').onclick=()=>send({t:'cmd',c:'drop'});
+$('bCam').onclick=()=>send({t:'cmd',c:'cam'});
+function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttribute('aria-pressed',S.inv?'true':'false');
+  try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv2',S.inv?'1':'0');}catch(e){}}
+$('bLock').onclick=()=>{S.lock=S.lock===30?45:S.lock===45?70:30;syncOpts();};
+$('bInv').onclick=()=>{S.inv=!S.inv;syncOpts();};syncOpts();
+document.addEventListener('contextmenu',e=>e.preventDefault());
+
+// ---- start: permissions, fullscreen, landscape, keep screen awake
+let wake=null;
+async function keepAwake(){try{wake=await navigator.wakeLock.request('screen');}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){keepAwake();if(!ws||ws.readyState>1)connect();}});
+$('go').onclick=async()=>{
+  try{if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission){const r=await DeviceMotionEvent.requestPermission();if(r!=='granted')throw new Error('denied');}}catch(e){$('sheetMsg').textContent='Motion access was refused. Drag on the wheel to steer instead.';}
+  if(!window.isSecureContext){$('sheetMsg').className='warn';$('sheetMsg').textContent='This page is not a secure connection, so the gyro is off. Use the https:// address or the USB address from the Mac.';}
+  window.addEventListener('devicemotion',onMotion);
+  try{await document.documentElement.requestFullscreen({navigationUI:'hide'});}catch(e){}
+  try{await screen.orientation.lock('landscape');}catch(e){}
+  keepAwake();
+  $('sheet').hidden=true;
+  setTimeout(()=>{if(!S.hasMotion){$('conn').textContent='No gyro: drag the wheel';}},1800);
+};
+
+// ---- send loop + wheel drawing
+let last='',lastT=0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const deg=S.hasMotion?S.angle:(S.touchSteer||0)*S.lock;
+  const s=S.steer;
+  $('ang').textContent=`${deg>0?'R':deg<0?'L':''} ${Math.abs(Math.round(deg))}°`;
+}
+function curDeg(){return S.hasMotion?S.angle:(S.touchSteer||0)*S.lock;}
+setInterval(()=>{const deg=curDeg();let s=clamp(deg/S.lock,-1,1);if(Math.abs(deg)<1.5)s=0;S.steer=s;
+  const now=performance.now(),msg=JSON.stringify({t:'in',s:+s.toFixed(3),g:S.gas,b:S.brake});
+  if(msg!==last||now-lastT>100){send(msg);last=msg;lastT=now;}},25);
+connect();requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
