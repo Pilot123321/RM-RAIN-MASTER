@@ -13,8 +13,8 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(--mono);overflow:hidden;
   touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;overscroll-behavior:none;}
-#hudimg{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;display:block;}
-#hudimg[hidden],#hudwait[hidden]{display:none;}
+#hudcv{position:fixed;inset:0;width:100%;height:100%;display:block;}
+#hudwait[hidden]{display:none;}
 #hudwait{position:fixed;inset:0;display:grid;place-items:center;margin:0;color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:center;padding:0 30%;}
 /* see-through pedal zones over the HUD */
 .pedal{position:fixed;top:0;bottom:0;width:27%;display:flex;align-items:flex-end;justify-content:center;padding-bottom:max(14px,env(safe-area-inset-bottom));
@@ -24,10 +24,10 @@ html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(
 #gas{--c:var(--gas);right:0;border-left-width:1px;border-left-color:color-mix(in srgb,var(--gas) 35%,transparent);padding-right:env(safe-area-inset-right);}
 .pedal.on{background:color-mix(in srgb,var(--c) 30%,transparent);}
 .bar{position:fixed;left:27%;right:27%;bottom:max(8px,env(safe-area-inset-bottom));display:flex;justify-content:center;align-items:center;gap:5px;flex-wrap:nowrap;overflow:hidden;}
-.bar button{appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:6px 10px;font:700 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;}
+.bar button{white-space:nowrap;appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:6px 10px;font:700 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;}
 .bar button.primary{background:var(--hud);color:#061016;border-color:var(--hud);}
 .bar button[aria-pressed=true]{background:var(--hud);color:#061016;}
-.status{position:fixed;left:27%;right:27%;top:max(6px,env(safe-area-inset-top));text-align:center;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);pointer-events:none;}
+.status{position:fixed;right:max(10px,env(safe-area-inset-right));top:auto;bottom:max(64px,calc(env(safe-area-inset-bottom) + 56px));max-width:26%;text-align:right;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);pointer-events:none;}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--brake);margin-right:6px;vertical-align:0;}
 .dot.ok{background:var(--gas);}
 .glow{position:fixed;inset:0;pointer-events:none;opacity:0;box-shadow:inset 0 0 0 4px var(--gc),inset 0 0 60px 10px var(--gc);--gc:var(--amb);}
@@ -41,7 +41,7 @@ html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(
 </style>
 </head>
 <body>
-<img id="hudimg" alt="Visor HUD" hidden>
+<canvas id="hudcv" aria-label="Visor HUD"></canvas>
 <p id="hudwait">The visor HUD shows here once the game is open on the Mac</p>
 <div class="pedal" id="brake">Brake</div>
 <div class="pedal" id="gas">Gas</div>
@@ -59,6 +59,7 @@ html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(
     <p id="sheetMsg"></p>
   </div>
 </div>
+<script src="/hud.js"></script>
 <script>
 (function(){
 'use strict';
@@ -71,9 +72,10 @@ const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,lo
 // ---- connection
 let ws=null;
 function connect(){
-  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=wheel');ws.binaryType='blob';
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=wheel');
   ws.onopen=()=>{status();hello();};
-  ws.onmessage=e=>{if(typeof e.data!=='string'){showFrame(e.data);return;}let m;try{m=JSON.parse(e.data);}catch(_){return;}
+  ws.onmessage=e=>{if(typeof e.data!=='string')return;let m;try{m=JSON.parse(e.data);}catch(_){return;}
+    if(m.t==='track'){onTrack(m);return;} if(m.t==='w'){onState(m);return;}
     if(m.t==='games'){S.games=m.n;status();hello();}
     else if(m.t==='st'){S.running=m.r;$('bRun').textContent=m.r?'Stop':'Start';
       if(m.a===2&&S.alert!==2&&navigator.vibrate)navigator.vibrate([90,60,90]);
@@ -86,13 +88,38 @@ let sent=0;
 function hello(){send({t:'hello',w:innerWidth,h:innerHeight,dpr:devicePixelRatio||1});}
 addEventListener('resize',()=>setTimeout(hello,200));
 function status(){const open=ws&&ws.readyState===1,ok=open&&S.games>0;$('dot').classList.toggle('ok',ok);
-  $('conn').textContent=!open?'Cannot reach '+location.host:!S.games?'Server OK, open the game on the Mac':`Linked · HUD ${fps} fps${frameErr?' · '+frameErr+' bad frames':''} · v5`;
-  if(open&&S.games&&!fps&&!frameURL)$('hudwait').textContent='Linked, waiting for HUD frames. Reload the game page on the Mac.';}
+  $('conn').textContent=!open?'Cannot reach '+location.host:!S.games?'Server OK, open the game on the Mac':`Linked · HUD ${fps} fps · v6`;
+  $('hudwait').hidden=!!(trackOk&&W);
+  if(open&&S.games&&!trackOk)$('hudwait').textContent='Linked, waiting for the track. Reload the game page on the Mac.';
+  if(!HUD)$('hudwait').textContent='Could not load the HUD code from the Mac. Reload this page.';}
 setInterval(status,500);
-let frameURL=null,framePending=false,frames=0,fps=0,frameErr=0;setInterval(()=>{fps=frames;frames=0;},1000);
-function showFrame(blob){if(framePending)return;framePending=true;const url=URL.createObjectURL(blob),img=$('hudimg');
-  img.onload=()=>{if(frameURL)URL.revokeObjectURL(frameURL);frameURL=url;framePending=false;frames++;img.hidden=false;$('hudwait').hidden=true;};
-  img.onerror=()=>{URL.revokeObjectURL(url);framePending=false;frameErr++;};img.src=url;}
+// ---- native HUD: same drawing code as the game, fed by track + state messages
+const HUD=window.makeHUD?window.makeHUD():null, cv=$('hudcv'), cx=cv.getContext('2d');
+let frames=0,fps=0,msgs=0,W=null,Wt=0,trackOk=false;setInterval(()=>{fps=frames;frames=0;},1000);
+function fitCanvas(){const d=Math.min(devicePixelRatio||1,2);cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);}
+addEventListener('resize',fitCanvas);fitCanvas();
+function onTrack(t){if(!HUD)return;HUD.setTrack(t);trackOk=true;}
+function onState(m){msgs++;const hz=m.hz.map(h=>({type:h[0],s:h[1],lat:h[2],yaw:h[3],halfLen:h[4],halfW:h[5],vis:!!h[6],gone:!!h[7],avoid:h[8],vpass:h[9],label:h[10]}));
+  const p=m.p;
+  W={player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null},
+    traffic:m.tr.map(c=>({s:c[0],lat:c[1],latV:c[2],v:c[3],vis:!!c[4],closing:!!c[5]})),hazards:hz,alert:m.a,near:m.ni>=0?hz[m.ni]:null,dNear:m.dn,
+    vis:m.vis,flagOn:!!m.fo,sc:{flag:m.fl||null},opts:{driver:m.dr?'drive':'model'},t:m.tm};
+  Wt=performance.now();if(HUD)HUD.NAV.zoom=m.z||1;}
+function drawHud(now){
+  cx.setTransform(1,0,0,1,0,0);cx.fillStyle='#000';cx.fillRect(0,0,cv.width,cv.height);
+  if(!HUD||!trackOk||!W)return;
+  const dt=Math.min(0.1,(now-(drawHud.last||now))/1000);drawHud.last=now;
+  // dead reckoning between 30 Hz updates, so motion is smooth at 60 fps
+  const e=Math.min(0.12,(now-Wt)/1000), P=W.player, L=HUD.wrapS;
+  const view=Object.assign({},W,{
+    player:Object.assign({},P,{s:L(P.s+P.v*Math.cos(P.psi||0)*e),lat:P.lat+(P.latV||0)*e}),
+    traffic:W.traffic.map(c=>Object.assign({},c,{s:L(c.s+c.v*e),lat:c.lat+c.latV*e}))});
+  if(W.near)view.dNear=W.dNear-P.v*e;
+  HUD.setWorld(view);
+  const H=cv.height,Wd=cv.width,u=H/420;
+  HUD.drawNav(cx,view,now/1000,dt,u*1.05,{x:12*u,y:10*u,w:Wd-24*u,h:H-20*u});
+  frames++;
+}
 function send(o){if(ws&&ws.readyState===1){ws.send(typeof o==='string'?o:JSON.stringify(o));sent++;}}
 
 // ---- steering from gravity: the angle of "up" in the phone's screen plane
@@ -118,7 +145,7 @@ function pedal(el,key){
 pedal($('gas'),'gas');pedal($('brake'),'brake');
 
 // ---- touch steering fallback: drag sideways on the wheel
-const wb=$('hudimg').parentNode===document.body?document.body:$('hudimg');let dragX=null;
+const wb=document.body;let dragX=null;
 wb.addEventListener('pointerdown',e=>{if(S.hasMotion||e.target.closest('.pedal,.bar,.sheet'))return;dragX=e.clientX;wb.setPointerCapture(e.pointerId);S.touchSteer=0;});
 wb.addEventListener('pointermove',e=>{if(dragX==null)return;S.touchSteer=clamp((e.clientX-dragX)/(innerWidth*0.25),-1,1);});
 for(const ev of ['pointerup','pointercancel'])wb.addEventListener(ev,()=>{dragX=null;S.touchSteer=0;});
@@ -153,6 +180,7 @@ $('go').onclick=async()=>{
 let last='',lastT=0;
 function loop(now){
   requestAnimationFrame(loop);
+  drawHud(now);
   const deg=S.hasMotion?S.angle:(S.touchSteer||0)*S.lock;
   const s=S.steer;
   $('ang').textContent=`${deg>0?'R':deg<0?'L':''} ${Math.abs(Math.round(deg))}°`;
