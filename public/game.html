@@ -122,7 +122,14 @@ input[type=range]{width:100%;accent-color:var(--cyan);}
 
 .circ{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:18px;align-items:start;}
 @media (max-width:760px){.circ{grid-template-columns:1fr;}}
-.circ canvas{width:100%;height:auto;aspect-ratio:520/300;border-radius:8px;border:1px solid var(--line);background:#F1F0EA;display:block;}
+.circ canvas{display:none;}
+#miniMap{width:100%;height:auto;aspect-ratio:2/1;border-radius:10px;border:1px solid var(--line);background:#070B10;display:block;}
+.map-key{display:flex;flex-wrap:wrap;gap:6px 16px;font:11px var(--f-mono);color:var(--muted);letter-spacing:.04em;}
+.map-key span{display:inline-flex;align-items:center;gap:6px;}
+.map-key i{display:inline-block;width:10px;height:10px;border-radius:50%;}
+.k-you{background:#C4F8FF;box-shadow:0 0 0 2px #0A0E13,0 0 0 3.5px #C4F8FF;} .k-car{background:#ff7a2a;} .k-hid{border:1.5px dashed #9fb4c0;}
+.k-red{background:#ff4f8e;box-shadow:0 0 0 2px #0A0E13,0 0 0 3.5px #FF4B3A;} .k-haz{width:0!important;height:0!important;border-radius:0!important;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid #FFC247;}
+.k-rad{width:22px!important;height:4px!important;border-radius:2px!important;background:#39E6B4;}
 .circ-info{display:grid;gap:12px;}
 .circ-info h3{font-size:28px;text-transform:uppercase;}
 .cstats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0;}
@@ -309,75 +316,28 @@ td.n{color:var(--faint);}
 
   <section class="panel" aria-labelledby="circH">
     <div class="panel-h">
-      <h2 id="circH">Circuit</h2>
-      <p>Upload a circuit map, or a photo of one, and the track, the 3D street and the visor radar are rebuilt from it. Or draw a lap with your finger or mouse.</p>
+      <h2 id="circH">Circuit map</h2>
+      <p>Live map of the whole circuit: every car on track, hazards, and the stretch the radar is watching right now. Upload a circuit map or a photo of one and the track, the 3D street and the visor HUD are rebuilt from it, or draw a lap.</p>
+    </div>
+    <canvas id="miniMap" width="1200" height="600" aria-label="Live map of the current circuit"></canvas>
+    <div class="map-key" aria-hidden="true">
+      <span><i class="k-you"></i>You</span><span><i class="k-car"></i>Car</span><span><i class="k-hid"></i>Hidden from your eyes</span><span><i class="k-red"></i>Closing fast</span><span><i class="k-haz"></i>Hazard</span><span><i class="k-rad"></i>Radar look-ahead, 700 m</span>
     </div>
     <div class="circ">
-      <canvas id="miniMap" width="520" height="300" aria-label="Map of the current circuit"></canvas>
       <div class="circ-info">
         <p class="c-ref">Current circuit</p>
         <h3 id="cName">Street circuit</h3>
         <dl class="cstats"><div><dt>Lap</dt><dd id="cLen">—</dd></div><div><dt>Corners</dt><dd id="cCorners">—</dd></div><div><dt>Longest straight</dt><dd id="cStraight">—</dd></div></dl>
+      </div>
+      <div class="circ-info">
         <div class="c-actions"><button class="btn primary" id="upBtn">Upload map</button><button class="btn" id="drawBtn">Draw circuit</button><button class="btn" id="defBtn">Default circuit</button></div>
         <p class="dropzone" id="dropzone">Or drop an image of a circuit map here. Works best with a single coloured track line on a plain background.</p>
         <input type="file" id="fileIn" accept="image/*" hidden>
       </div>
     </div>
+    <p class="fine">F1 2022 car model by <a href="https://sketchfab.com/Blender458" style="color:inherit">Blender458</a>, <a href="https://creativecommons.org/licenses/by/4.0/" style="color:inherit">CC BY 4.0</a>. Asphalt, concrete, street lamp and night-city lighting by Poly Haven, CC0. The simulation is a simplified model, not a reconstruction of real accidents.</p>
   </section>
 
-  <section class="panel" aria-labelledby="benchH">
-    <div class="panel-h">
-      <h2 id="benchH">How early the driver knows</h2>
-      <p>Autopilot, same car, same corner, on the current circuit. Without the HUD it reacts 0.7 s after the hazard comes into sight. With it, the visor light fires and it reacts 0.9 s later. Bars show how far before the hazard it started to react.</p>
-    </div>
-    <div class="scale" aria-hidden="true"><span></span><div><span>0 m</span><span>200</span><span>400</span><span>600</span><span>700 m</span></div><span></span></div>
-    <div class="bench" id="bench"><p class="pending">Simulating six runs…</p></div>
-  </section>
-
-  <section class="panel" aria-labelledby="logH">
-    <div class="panel-h">
-      <h2 id="logH">Your runs</h2>
-      <p>Every run and every hazard you pass in free drive lands here. Drive a scenario with the radar off, then on, and compare where you reacted.</p>
-    </div>
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>#</th><th>Scenario</th><th>Circuit</th><th>Radar</th><th>Driver</th><th>Warned</th><th>In sight</th><th>Reacted</th><th>Result</th></tr></thead>
-      <tbody id="logBody"><tr><td colspan="9" class="empty">No runs yet. Press Start run.</td></tr></tbody>
-    </table></div>
-  </section>
-
-  <section class="notes">
-    <div class="panel">
-      <div class="panel-h"><h2>Reading the nav radar</h2></div>
-      <ul class="legend" id="legend">
-        <li><canvas data-icon="route" width="128" height="88"></canvas><div><b>The road ahead</b><span>A tilted ribbon of the next few hundred metres: track edges, walls and corner numbers, nothing else.</span></div></li>
-        <li><canvas data-icon="cars" width="128" height="88"></canvas><div><b>Cars to scale</b><span>Outlines with wheels, at real size and heading. Red means you are closing on it too fast.</span></div></li>
-        <li><canvas data-icon="gap" width="128" height="88"></canvas><div><b>Wheel-to-wheel gap</b><span>When a car is alongside, the radar zooms in and shows the gap between you in metres.</span></div></li>
-        <li><canvas data-icon="hidden" width="128" height="88"></canvas><div><b>Hidden car</b><span>Dashed: the car is there but spray, a wall or a crest hides it from your eyes.</span></div></li>
-        <li><canvas data-icon="lanes" width="128" height="88"></canvas><div><b>Lane guidance</b><span>Which side of the track is clear past the hazard. A blocked lane is crossed out.</span></div></li>
-        <li><canvas data-icon="visor" width="128" height="88"></canvas><div><b>Visor light</b><span>Amber: hazard in the next corners. Flashing red: you are too fast for it, now.</span></div></li>
-      </ul>
-    </div>
-    <div class="panel">
-      <div class="panel-h"><h2>Design rules</h2></div>
-      <ul class="rules">
-        <li><b>Half a second</b><span>At 300 km/h a glance lasts about 0.5 s. One header line, one route, a few cars. The header turns amber, then red, as danger gets closer.</span></li>
-        <li><b>Light only</b><span>A visor projector can only add light, so there are no panels or dark fills. Everything is a thin glowing outline over the real view, drawn in three colours: cyan, amber and red.</span></li>
-        <li><b>Geometry, not a map</b><span>Everything is to scale and heading-up, so a glance tells you where a car is relative to your wheels.</span></li>
-        <li><b>Auto zoom</b><span>It pulls out to show the next corners, and in close when a car is alongside or a hazard is near.</span></li>
-        <li><b>Safety only</b><span>No gaps in seconds, lap times or strategy. Those would make it a performance aid in the FIA's eyes, and a distraction.</span></li>
-        <li><b>Data that already exists</b><span>Car positions and speeds come from the timing system. Marshals and recovery vehicles would carry the same transponder, with warnings sent on the channel the FIA already uses for cockpit flag lights.</span></li>
-      </ul>
-      <div class="panel-h"><h2>Build the real demo</h2></div>
-      <ol class="steps">
-        <li><b>Telemetry.</b> Run the F1 game in the rain at Jeddah or Monaco. Its UDP telemetry streams every car's position and speed.</li>
-        <li><b>Map.</b> Build the circuit from its map, as this page does, and draw the radar over the game view.</li>
-        <li><b>Visor light.</b> An LED strip above the screen, driven from the same alert level.</li>
-        <li><b>The test.</b> A teammate stops just after a blind corner. Drive once without the radar and once with it, and compare where the driver starts to brake.</li>
-      </ol>
-      <p class="fine">Historical references are for context. The simulation is a simplified model, not a reconstruction of those accidents.</p>
-      <p class="fine">F1 2022 car model by <a href="https://sketchfab.com/Blender458" style="color:inherit">Blender458</a>, <a href="https://creativecommons.org/licenses/by/4.0/" style="color:inherit">CC BY 4.0</a>. Asphalt, concrete, street lamp and night-city lighting by Poly Haven, CC0.</p>
-    </div>
-  </section>
 </div>
 
 <div class="modal" id="builder" hidden role="dialog" aria-modal="true" aria-labelledby="bTitle">
@@ -1578,7 +1538,7 @@ $('rSame').addEventListener('click',()=>startRun());
 $('iStart').addEventListener('click',()=>startRun());
 $('runBtn').addEventListener('click',()=>{running?stopRun():startRun();});
 function renderLog(){
-  if(!LOG.length)return;
+  if(!LOG.length||!$('logBody'))return;
   $('logBody').innerHTML=LOG.map(r=>`<tr><td class="n">${r.n}</td><td>${SCN[r.scn].title}</td><td>${esc(r.track)}</td><td>${r.opts.hud?'On':'Off'}</td><td>${r.opts.driver==='model'?'Autopilot':'You'}</td><td>${r.opts.hud||r.opts.visor?fmtM(r.warnD):'—'}</td><td>${fmtM(r.seenD)}</td><td>${r.reactD!=null?fmtM(Math.max(0,r.reactD)):'—'}</td><td><span class="chip ${r.verdict}">${chipText(r)}</span></td></tr>`).join('');
 }
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -1685,27 +1645,58 @@ async function remoteInit(){
 }
 
 /* ================= CIRCUIT PANEL & BUILDER ================= */
+const MINI={bg:null,T:null,sc:1,t:0};
 function drawMini(){
-  const cv=$('miniMap'),c=cv.getContext('2d'),W=cv.width,Hh=cv.height;
-  c.fillStyle=NC.map;c.fillRect(0,0,W,Hh);
+  const cv=$('miniMap'),W=cv.width,Hh=cv.height,bg=document.createElement('canvas');bg.width=W;bg.height=Hh;const c=bg.getContext('2d');
+  c.fillStyle='#070B10';c.fillRect(0,0,W,Hh);
+  c.strokeStyle='rgba(120,160,190,.06)';c.lineWidth=1;for(let x=0;x<W;x+=40){c.beginPath();c.moveTo(x,0);c.lineTo(x,Hh);c.stroke();}for(let y=0;y<Hh;y+=40){c.beginPath();c.moveTo(0,y);c.lineTo(W,y);c.stroke();}
   let minx=1e9,maxx=-1e9,minz=1e9,maxz=-1e9;for(let i=0;i<N;i+=4){minx=Math.min(minx,PX[i]);maxx=Math.max(maxx,PX[i]);minz=Math.min(minz,PZ[i]);maxz=Math.max(maxz,PZ[i]);}
-  const s=Math.min((W-50)/(maxx-minx),(Hh-50)/(maxz-minz)),ox=(W-(maxx-minx)*s)/2-minx*s,oz=(Hh-(maxz-minz)*s)/2-minz*s,T=(x,z)=>[ox+x*s,oz+z*s];
-  c.fillStyle=NC.bld;for(const bf of FOOT){c.beginPath();bf.pts.forEach((p,k)=>{const q=T(p[0],p[1]);k?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]);});c.closePath();c.fill();}
+  const s=Math.min((W-120)/(maxx-minx),(Hh-120)/(maxz-minz)),ox=(W-(maxx-minx)*s)/2-minx*s,oz=(Hh-(maxz-minz)*s)/2-minz*s,T=(x,z)=>[ox+x*s,oz+z*s];
+  MINI.T=T;MINI.sc=s;
+  c.fillStyle='#111922';c.strokeStyle='#18222d';for(const bf of FOOT){c.beginPath();bf.pts.forEach((p,k)=>{const q=T(p[0],p[1]);k?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]);});c.closePath();c.fill();c.stroke();}
   const path=new Path2D();for(let i=0;i<=N;i+=3){const q=T(PX[i%N],PZ[i%N]);i?path.lineTo(q[0],q[1]):path.moveTo(q[0],q[1]);}path.closePath();
-  c.lineJoin='round';c.strokeStyle=NC.roadEdge;c.lineWidth=7;c.stroke(path);c.strokeStyle=NC.road;c.lineWidth=4.5;c.stroke(path);
-  CORNERS.forEach(cn=>{const p=worldPos(cn.apex,-cn.sg*(WALL+26)),q=T(p.x,p.z);shield(c,q[0],q[1],'T'+cn.n,0.95);});
-  const sf=T(PX[0],PZ[0]);c.save();c.translate(sf[0],sf[1]);c.rotate(Math.atan2(TZ[0],TX[0])+Math.PI/2);for(let k=-2;k<2;k++){c.fillStyle=k%2?'#111':'#fff';c.fillRect(k*3,-2,3,4);}c.restore();
-  const mk=(sp,type,lab)=>{const p=worldPos(sp,0),q=T(p.x,p.z);hazIcon(c,type,q[0],q[1]-12,17,'#FFC400',true,NC.ink);c.fillStyle=NC.ink;c.font='700 10px "B612 Mono", monospace';c.textAlign='center';c.fillText(lab,q[0],q[1]+10);};
-  mk(SPOTS.blind,'car','BLIND');mk(SPOTS.marsh,'marshal','CREST');mk(SPOTS.rec,'tractor','RECOVERY');
-  const d=worldPos(8,0),d2=worldPos(40,0),a=T(d.x,d.z),b2=T(d2.x,d2.z);c.strokeStyle=NC.route;c.lineWidth=3;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b2[0],b2[1]);c.stroke();
-  const ang=Math.atan2(b2[1]-a[1],b2[0]-a[0]);c.fillStyle=NC.route;c.beginPath();c.moveTo(b2[0]+Math.cos(ang)*7,b2[1]+Math.sin(ang)*7);c.lineTo(b2[0]+Math.cos(ang+2.3)*7,b2[1]+Math.sin(ang+2.3)*7);c.lineTo(b2[0]+Math.cos(ang-2.3)*7,b2[1]+Math.sin(ang-2.3)*7);c.fill();
+  c.lineJoin='round';c.lineCap='round';c.strokeStyle='#2c3a47';c.lineWidth=Math.max(9,2*WALL*s);c.stroke(path);c.strokeStyle='#4a5b69';c.lineWidth=Math.max(6,2*HW*s);c.stroke(path);
+  // corners
+  c.font='700 13px "B612 Mono", monospace';c.textAlign='center';c.textBaseline='middle';
+  CORNERS.forEach(cn=>{const p=worldPos(cn.apex,-cn.sg*(WALL+30)),q=T(p.x,p.z);c.fillStyle='rgba(196,248,255,.55)';c.fillText('T'+cn.n,q[0],q[1]);});
+  // start/finish and direction
+  const sf=T(PX[0],PZ[0]);c.save();c.translate(sf[0],sf[1]);c.rotate(Math.atan2(TZ[0],TX[0])+Math.PI/2);for(let k=-3;k<3;k++)for(let r=0;r<2;r++){c.fillStyle=(k+r)%2?'#111':'#fff';c.fillRect(k*4,-4+r*4,4,4);}c.restore();
+  const d0=worldPos(14,0),d1=worldPos(60,0),a0=T(d0.x,d0.z),a1=T(d1.x,d1.z),ang=Math.atan2(a1[1]-a0[1],a1[0]-a0[0]);
+  c.strokeStyle='rgba(196,248,255,.5)';c.lineWidth=2;c.beginPath();c.moveTo(a0[0],a0[1]);c.lineTo(a1[0],a1[1]);c.stroke();c.fillStyle='rgba(196,248,255,.5)';c.beginPath();c.moveTo(a1[0]+Math.cos(ang)*9,a1[1]+Math.sin(ang)*9);c.lineTo(a1[0]+Math.cos(ang+2.4)*8,a1[1]+Math.sin(ang+2.4)*8);c.lineTo(a1[0]+Math.cos(ang-2.4)*8,a1[1]+Math.sin(ang-2.4)*8);c.fill();
+  // where each scenario's hazard is
+  c.font='700 10px "B612 Mono", monospace';
+  [[SPOTS.blind,'BLIND CORNER'],[SPOTS.marsh,'CREST'],[SPOTS.rec,'RECOVERY']].forEach(([sp,lab])=>{const p=worldPos(sp,WALL+18),q=T(p.x,p.z);c.fillStyle='rgba(255,194,71,.45)';c.fillText(lab,q[0],q[1]);});
+  MINI.bg=bg;
   $('cName').textContent=TRACK_NAME;$('cLen').textContent=(L/1000).toFixed(2)+' km';$('cCorners').textContent=CORNERS.length;
   $('cStraight').textContent=Math.round(SPOTS.crestStraight.len)+' m';
+  drawMiniLive(world);
+}
+function drawMiniLive(w){
+  const cv=$('miniMap');if(!MINI.bg||!w)return;const c=cv.getContext('2d'),T=MINI.T,P=w.player;
+  c.drawImage(MINI.bg,0,0);
+  // the stretch of track the radar is covering right now
+  if(w.opts.hud){c.lineCap='round';c.lineJoin='round';
+    for(let d=0;d<RANGE;d+=6){const a=worldPos(P.s+d,0),b=worldPos(P.s+d+6,0),qa=T(a.x,a.z),qb=T(b.x,b.z);c.strokeStyle=`rgba(57,230,180,${0.75*(1-d/RANGE*0.7)})`;c.lineWidth=Math.max(4,2*HW*MINI.sc*0.55);c.beginPath();c.moveTo(qa[0],qa[1]);c.lineTo(qb[0],qb[1]);c.stroke();}}
+  // hazards
+  for(const h of w.hazards){if(h.gone)continue;const p=worldPos(h.s,h.lat),q=T(p.x,p.z),col=w.alert===2&&h===w.near?'#FF4B3A':'#FFC247';hazIcon(c,h.type,q[0],q[1]-4,18,col,true,'#0A0E13');}
+  // cars, in tracker colours; hollow if spray, walls or a crest hide them from you
+  c.font='700 10px "B612 Mono", monospace';c.textAlign='center';c.textBaseline='bottom';
+  w.traffic.forEach((t,i)=>{const p=worldPos(t.s,t.lat),q=T(p.x,p.z),col=TRK_COLS[i%TRK_COLS.length];
+    c.beginPath();c.arc(q[0],q[1],5.5,0,TAU);if(t.vis){c.fillStyle=col;c.fill();}else{c.setLineDash([2.5,2]);c.strokeStyle=col;c.lineWidth=1.8;c.stroke();c.setLineDash([]);}
+    if(t.closing){c.strokeStyle='#FF4B3A';c.lineWidth=2;c.beginPath();c.arc(q[0],q[1],9,0,TAU);c.stroke();}
+    c.fillStyle=col;c.fillText(TRK_CODES[i%TRK_CODES.length],q[0],q[1]-8);});
+  // you: an arrow pointing where the car is heading
+  const hd=headingAt(P.s,carYaw(P,true)),pp=worldPos(P.s,P.lat),q=T(pp.x,pp.z),ang=Math.atan2(hd[1],hd[0]);
+  c.save();c.translate(q[0],q[1]);c.rotate(ang);c.fillStyle='#C4F8FF';c.strokeStyle='#0A0E13';c.lineWidth=2;
+  c.beginPath();c.moveTo(11,0);c.lineTo(-7,-7);c.lineTo(-3,0);c.lineTo(-7,7);c.closePath();c.fill();c.stroke();c.restore();
+  c.strokeStyle='rgba(196,248,255,.5)';c.lineWidth=1.5;c.beginPath();c.arc(q[0],q[1],15,0,TAU);c.stroke();
+  // position readout
+  const ri=raceInfo(w);c.textAlign='left';c.textBaseline='bottom';c.fillStyle='#C4F8FF';c.font='700 26px "B612 Mono", monospace';const by=cv.height-18;c.fillText('P'+ri.pos,22,by);
+  const pw=c.measureText('P'+ri.pos).width;c.font='700 13px "B612 Mono", monospace';c.fillStyle='rgba(196,248,255,.6)';c.fillText('/'+ri.n+'   LAP '+ri.lap+'   '+Math.round(P.v*3.6)+' KM/H',26+pw,by-4);
 }
 function applyTrack(raw,name){
   if(running)stopRun();
   buildTrack(raw,name);buildTrackMeshes();drawMini();renderScenCards();resetWorld();sendTrack();
-  $('bench').innerHTML='<p class="pending">Simulating six runs…</p>';setTimeout(renderBench,40);
 }
 
 const B={mode:'upload',img:null,proc:null,pick:null,tol:60,km:4.5,rev:false,loop:null,drawing:false,draw:[]};
@@ -1954,6 +1945,7 @@ function frame(now){
   const T1=performance.now();
   syncScene(w,simT,dt);
   updateSpray(dt,w.rain);updateRain(dt,camera.position,vel,w.rain);updateLamps(dt);
+  MINI.t-=dt;if(MINI.t<=0&&MINI.visible!==false){MINI.t=0.066;drawMiniLive(w);}
   const T2=performance.now();
   if(composer)composer.render();else renderer.render(scene,camera);
   dropsCv.style.opacity=0;
@@ -1991,6 +1983,7 @@ function runHeadless(key,assist){
   return w.result;
 }
 function renderBench(){
+  if(!$('bench'))return;
   const rows=['blind','crest','rec'].map(k=>{const s=SCN[k],off=runHeadless(k,false),on=runHeadless(k,true);
     const bar=(r,cls,lab)=>{const d=r.reactD!=null?Math.max(0,r.reactD):0,pct=clamp(d/700*100,0.4,100);
       return `<div class="bar"><span class="bar-l">${lab}</span><div class="bar-track" role="img" aria-label="${lab}: reacted ${Math.round(d)} m before the hazard"><div class="bar-fill ${cls}" style="width:${pct}%"><em>${Math.round(d)} m</em></div></div><span class="chip ${r.verdict}">${chipText(r)}</span></div>`;};
@@ -2000,6 +1993,7 @@ function renderBench(){
 
 /* ================= LEGEND ================= */
 function drawLegend(){
+  if(!$('legend'))return;
   document.querySelectorAll('#legend canvas').forEach(cv=>{
     const c=cv.getContext('2d'),k=cv.dataset.icon,W=cv.width,Hh=cv.height;c.fillStyle='#070B10';c.fillRect(0,0,W,Hh);
     c.save();c.shadowColor=HC.glow;c.shadowBlur=5;c.lineCap='round';c.lineJoin='round';
@@ -2018,12 +2012,12 @@ function drawLegend(){
 
 /* ================= BOOT ================= */
 new ResizeObserver(resize).observe(stage);resize();
+new IntersectionObserver(es=>{MINI.visible=es[0].isIntersecting;}).observe($('miniMap'));
 buildTrack(defaultLoop(),'Street circuit');buildTrackMeshes();drawMini();renderScenCards();
 $('rain').value=Math.round(ui.rain*100);syncControls();resetWorld();drawLegend();
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{drawLegend();drawMini();});
 window.__dbg={scene,renderer,sprayPts,rainL,get tg(){return trackGroup;},hc,get world(){return world;},ui,REMOTE,kap:s=>sampleArr(KC,s),get streaks(){return STREAKS;},MATS,get pg(){return playerGLB;},get glb(){return CAR_GLB;}};
 requestAnimationFrame(frame);
-setTimeout(renderBench,60);
 remoteInit();
 })();
 </script>
