@@ -191,9 +191,9 @@
     // halo
     const hm = M.carbon;
     const halo = new THREE.CatmullRomCurve3([[-0.46, 0.72, 0.32], [-0.52, 1.02, 0.0], [-0.4, 1.19, -0.36], [0, 1.24, -0.56], [0.4, 1.19, -0.36], [0.52, 1.02, 0.0], [0.46, 0.72, 0.32]].map(p => new THREE.Vector3(...p)));
-    add(new THREE.TubeGeometry(halo, 40, 0.028, 10, false), hm);
+    if (!opts.cockpit) add(new THREE.TubeGeometry(halo, 40, 0.028, 10, false), hm);  // hidden from the driver's eye view
     const pil = new THREE.CatmullRomCurve3([[0, 1.24, -0.56], [0, 1.12, -0.86], [0, 0.78, -1.12]].map(p => new THREE.Vector3(...p)));
-    add(new THREE.TubeGeometry(pil, 16, 0.026, 10, false), hm);
+    if (!opts.cockpit) add(new THREE.TubeGeometry(pil, 16, 0.026, 10, false), hm);
     if (opts.cockpit) {
       // cockpit rim and steering wheel top edge seen from the driver's eyes
       const rim = add(new THREE.TorusGeometry(0.34, 0.035, 8, 30, Math.PI), M.carbonMatte, 0, 0.66, -0.2); rim.rotation.x = -Math.PI / 2; rim.rotation.z = Math.PI;

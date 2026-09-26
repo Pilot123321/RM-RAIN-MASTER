@@ -877,7 +877,7 @@ scene.fog=new THREE.Fog(0x1e2833,10,400);
 const bgCv=document.createElement('canvas'); bgCv.width=4; bgCv.height=256;
 const bgTex=new THREE.CanvasTexture(bgCv); bgTex.encoding=THREE.sRGBEncoding; scene.background=bgTex;
 function paintSky(rain){
-  curRain=rain;
+  curRain=rain;if(MATS&&MATS.road&&MATS.road.roughnessMap)MATS.road.roughness=1-0.18*rain;
   const fogc=new THREE.Color(0x18212b).lerp(new THREE.Color(0x2f3a46),rain);
   scene.fog.color.copy(fogc);
   const c=bgCv.getContext('2d'), g=c.createLinearGradient(0,0,0,256);
@@ -938,8 +938,8 @@ roadRough.encoding=THREE.LinearEncoding;
 const texL=new THREE.TextureLoader();
 function pbrTex(url,srgb,rx,ry,cb){return texL.load(url,t=>{t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rx,ry);t.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());if(srgb)t.encoding=THREE.sRGBEncoding;if(cb)cb(t);});}
 const MATS={
-  road:new THREE.MeshStandardMaterial({map:roadTex,color:0x8a9098,roughness:1,roughnessMap:roadRough,normalMap:roadNormal,normalScale:new THREE.Vector2(0.12,0.12),metalness:0.0,vertexColors:true,envMapIntensity:1.1}),
-  line:new THREE.MeshStandardMaterial({color:0xe9edf0,roughness:0.45,vertexColors:true,polygonOffset:true,polygonOffsetFactor:-3}),
+  road:new THREE.MeshStandardMaterial({map:roadTex,color:0x8a9098,roughness:1,roughnessMap:roadRough,normalMap:roadNormal,normalScale:new THREE.Vector2(0.12,0.12),metalness:0.0,vertexColors:true,envMapIntensity:0.35}),
+  line:new THREE.MeshStandardMaterial({color:0xd9dde0,roughness:0.8,vertexColors:true,polygonOffset:true,polygonOffsetFactor:-3}),
   wall:new THREE.MeshStandardMaterial({userData:{noEnv:false},map:wallTex,emissive:0xffffff,emissiveMap:wallTex,emissiveIntensity:0.2,roughness:0.75,side:THREE.DoubleSide,vertexColors:true,envMapIntensity:0.35}),
   kerb:new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.45,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2}),
   ground:new THREE.MeshStandardMaterial({color:0x0b0e11,roughness:1,envMapIntensity:0.15}),
@@ -952,8 +952,8 @@ const MATS={
 let trackGroup=null, STREAKS=[], FOOT=[];
 // swap in the real scanned asphalt once it has loaded (one tile ~ 4 m); puddle roughness stays from our own map
 pbrTex('/assets/asphalt_diff.jpg',true,3.3,10,t=>{MATS.road.map=t;MATS.road.color.set(0x9aa0a6);MATS.road.needsUpdate=true;});
-pbrTex('/assets/asphalt_nor.jpg',false,3.3,10,t=>{MATS.road.normalMap=t;MATS.road.normalScale.set(0.6,0.6);MATS.road.needsUpdate=true;});
-pbrTex('/assets/asphalt_rough.jpg',false,3.3,10,t=>{MATS.road.roughnessMap=t;MATS.road.roughness=0.75;MATS.road.needsUpdate=true;});
+pbrTex('/assets/asphalt_nor.jpg',false,3.3,10,t=>{MATS.road.normalMap=t;MATS.road.normalScale.set(0.9,0.9);MATS.road.needsUpdate=true;});
+pbrTex('/assets/asphalt_rough.jpg',false,3.3,10,t=>{MATS.road.roughnessMap=t;MATS.road.roughness=1-0.18*curRain;MATS.road.needsUpdate=true;});
 // concrete barrier face (Poly Haven "brushed_concrete", CC0) painted into the lower band of the wall texture
 {const im=new Image();im.onload=()=>{const c=wallTex.image.getContext('2d');for(let x=0;x<512;x+=128)c.drawImage(im,0,0,im.width,im.height/2,x,54,128,74);
   c.fillStyle='rgba(20,22,26,.25)';c.fillRect(0,54,512,74);c.fillStyle='#4a4e53';for(let x=0;x<512;x+=96)c.fillRect(x,54,2,74);wallTex.needsUpdate=true;};im.src='/assets/concrete_diff.jpg';}
@@ -1045,18 +1045,18 @@ let rainInit=false;
 function updateRain(dt,cam,vel,rain){
   const n=Math.floor(RAIN_N*clamp(rain*1.1,0.05,1)), B=34, BY=18;
   if(!rainInit){rainInit=true;const r=mulberry(5);for(let i=0;i<RAIN_N;i++){rainBase[i*3]=cam.x+(r()*2-1)*B;rainBase[i*3+1]=cam.y+(r()*2-1)*BY;rainBase[i*3+2]=cam.z+(r()*2-1)*B;}}
-  const fall=13, sx=-vel.x*0.03, sy=fall*0.03, sz=-vel.z*0.03;
+  const fall=13, sx=-vel.x*0.045, sy=fall*0.06, sz=-vel.z*0.045;
   for(let i=0;i<n;i++){let x=rainBase[i*3],y=rainBase[i*3+1]-fall*dt,z=rainBase[i*3+2];
     if(x-cam.x>B)x-=2*B;else if(x-cam.x<-B)x+=2*B; if(z-cam.z>B)z-=2*B;else if(z-cam.z<-B)z+=2*B; if(y-cam.y<-BY)y+=2*BY;else if(y-cam.y>BY)y-=2*BY;
     rainBase[i*3]=x;rainBase[i*3+1]=y;rainBase[i*3+2]=z;const j=i*6;rainPos[j]=x;rainPos[j+1]=y;rainPos[j+2]=z;rainPos[j+3]=x+sx;rainPos[j+4]=y+sy;rainPos[j+5]=z+sz;}
-  rainG.setDrawRange(0,n*2);rainG.attributes.position.needsUpdate=true;rainMat.opacity=0.12+0.28*rain;
+  rainG.setDrawRange(0,n*2);rainG.attributes.position.needsUpdate=true;rainMat.opacity=0.05+0.12*rain;
 }
 // spray
 const SP_N=2600, spPos=new Float32Array(SP_N*3), spSize=new Float32Array(SP_N), spAlpha=new Float32Array(SP_N), spVel=new Float32Array(SP_N*3), spAge=new Float32Array(SP_N).fill(99), spLife=new Float32Array(SP_N).fill(1);
 let spHead=0;
 const spG=new THREE.BufferGeometry();spG.setAttribute('position',new THREE.BufferAttribute(spPos,3));spG.setAttribute('aSize',new THREE.BufferAttribute(spSize,1));spG.setAttribute('aAlpha',new THREE.BufferAttribute(spAlpha,1));
 const sprayMat=new THREE.ShaderMaterial({transparent:true,depthWrite:false,fog:true,
-  uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog,{uColor:{value:new THREE.Color(0xb9c6d2)},uScale:{value:600}}]),
+  uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog,{uColor:{value:new THREE.Color(0x8a96a2)},uScale:{value:600}}]),
   vertexShader:'attribute float aSize;attribute float aAlpha;varying float vA;uniform float uScale;\n#include <fog_pars_vertex>\nvoid main(){vec4 mvPosition=modelViewMatrix*vec4(position,1.0);gl_Position=projectionMatrix*mvPosition;gl_PointSize=min(900.0,aSize*uScale/max(0.1,-mvPosition.z));vA=aAlpha;\n#include <fog_vertex>\n}',
   fragmentShader:'uniform vec3 uColor;varying float vA;\n#include <fog_pars_fragment>\nvoid main(){vec2 c=gl_PointCoord-0.5;float d=length(c);float a=smoothstep(0.5,0.05,d)*vA;if(a<0.003)discard;gl_FragColor=vec4(uColor,a);\n#include <fog_fragment>\n}'});
 const sprayPts=new THREE.Points(spG,sprayMat);sprayPts.frustumCulled=false;scene.add(sprayPts);
@@ -1072,7 +1072,7 @@ function updateSpray(dt,rain){
   for(let i=0;i<SP_N;i++){if(spAge[i]>spLife[i]){spAlpha[i]=0;continue;}spAge[i]+=dt;const f=spAge[i]/spLife[i],dr=Math.exp(-1.6*dt);
     spVel[i*3]*=dr;spVel[i*3+2]*=dr;spVel[i*3+1]=spVel[i*3+1]*dr-1.5*dt;
     spPos[i*3]+=spVel[i*3]*dt;spPos[i*3+1]+=spVel[i*3+1]*dt;spPos[i*3+2]+=spVel[i*3+2]*dt;
-    spSize[i]=0.8+f*6.5;spAlpha[i]=(0.2+0.2*rain)*Math.pow(1-clamp(f,0,1),1.3)*Math.min(1,spAge[i]*10);}
+    spSize[i]=1.5+f*9;spAlpha[i]=(0.07+0.1*rain)*Math.pow(1-clamp(f,0,1),1.3)*Math.min(1,spAge[i]*10);}
   spG.attributes.position.needsUpdate=true;spG.attributes.aSize.needsUpdate=true;spG.attributes.aAlpha.needsUpdate=true;
 }
 
@@ -1956,7 +1956,7 @@ function frame(now){
   updateSpray(dt,w.rain);updateRain(dt,camera.position,vel,w.rain);updateLamps(dt);
   const T2=performance.now();
   if(composer)composer.render();else renderer.render(scene,camera);
-  if(ui.cam==='cockpit')drawDrops(dt,w);else dropsCv.style.opacity=0;
+  dropsCv.style.opacity=0;
   const T3=performance.now();
   drawHUD(w,simT,dt);
   const T4=performance.now();
