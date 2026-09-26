@@ -36,10 +36,23 @@ Requires Node.js 18+.
 Keyboard: W/↑ throttle, S/↓/Space brake, A/D steer, X drop hazard, C camera, N HUD size,
 +/- HUD range, Esc stop.
 
+### Your own car model
+
+The car is a detailed procedural 2022-regulation F1 car (`public/f1car.js`). To use a real model
+instead, put a glTF binary you are licensed to use at `public/assets/f1.glb`. It is scaled to
+5.6 m and used for the other cars and the chase camera. If it faces the wrong way, add
+`public/assets/f1.json` with `{"yaw": 180}` (also `scale` and `y` offsets).
+
+### Credits
+
+- Night-city lighting: "Shanghai Bund" HDRI by Poly Haven, CC0 (`public/assets/night_city_1k.hdr`)
+- three.js r128 and its example add-ons, MIT licence (`public/vendor/`)
+
 ### Files
 
 - `server.js`: static server, WebSocket relay between phone and game, QR codes, self-signed cert, adb reverse
-- `public/game.html`: the simulator and HUD (three.js)
+- `public/game.html`: the simulator, physics and HUD (three.js)
+- `public/f1car.js`: the procedural F1 car model
 - `public/wheel.html`: the phone steering-wheel controller
 
 The simulation is a simplified model for demonstrating the idea, not a reconstruction of real accidents.
