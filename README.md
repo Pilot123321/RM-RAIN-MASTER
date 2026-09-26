@@ -36,16 +36,20 @@ Requires Node.js 18+.
 Keyboard: W/↑ throttle, S/↓/Space brake, A/D steer, X drop hazard, C camera, N HUD size,
 +/- HUD range, Esc stop.
 
-### Your own car model
+### Car model
 
-The car is a detailed procedural 2022-regulation F1 car (`public/f1car.js`). To use a real model
-instead, put a glTF binary you are licensed to use at `public/assets/f1.glb`. It is scaled to
-5.6 m and used for the other cars and the chase camera. If it faces the wrong way, add
-`public/assets/f1.json` with `{"yaw": 180}` (also `scale` and `y` offsets).
+Other cars and your car in the chase view use a real F1 2022 model (`public/assets/f1.glb`),
+merged by material at load time and repainted per team. The driver's-eye view uses the
+procedural cockpit (`public/f1car.js`). Swap in any glTF you are licensed to use at the same
+path; if it faces the wrong way add `public/assets/f1.json` with `{"yaw": 180}`.
 
 ### Credits
 
+- F1 2022 car model by Blender458 (https://sketchfab.com/Blender458), CC BY 4.0
+  (https://creativecommons.org/licenses/by/4.0/), obtained via FetchCFD. Unmodified; scaled and
+  recoloured at runtime.
 - Night-city lighting: "Shanghai Bund" HDRI by Poly Haven, CC0 (`public/assets/night_city_1k.hdr`)
+- Asphalt "asphalt_track", concrete "brushed_concrete" and the "street_lamp_01" model by Poly Haven, CC0
 - three.js r128 and its example add-ons, MIT licence (`public/vendor/`)
 
 ### Files

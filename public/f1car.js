@@ -183,7 +183,7 @@
     let rg = null;
     if (opts.glowTex) {
       rg = new THREE.Sprite(new THREE.SpriteMaterial({ map: opts.glowTex, color: 0xff3322, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: true }));
-      rg.position.set(0, 0.42, 2.5); rg.scale.set(0.8, 0.8, 1); g.add(rg);
+      rg.position.set(0, 0.42, 2.5); rg.scale.set(0.35, 0.35, 1); g.add(rg);
     }
     // driver's helmet (visible to other cars and the chase camera)
     if (!opts.cockpit) add(new THREE.SphereGeometry(0.14, 16, 12), accent, 0, 0.78, 0.05);

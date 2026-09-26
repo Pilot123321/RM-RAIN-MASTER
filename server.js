@@ -63,11 +63,11 @@ async function handler(req, res) {
       const parts = [...src.matchAll(/\/\*HUD>\*\/([\s\S]*?)\/\*<HUD\*\//g)].map(m => m[1]);
       const js = `window.makeHUD=function(){
 let N=1,L=1,DS=1,PX,PZ,TX,TZ,H,SL,CORNERS=[],world=null,cw=800,ch=400;
-const HW=6,WALL=6.6,RANGE=700,RM=false,TAU=Math.PI*2;
+const HW=6,WALL=6.6,RANGE=700,TAU=Math.PI*2;let RM=false;
 const clamp=(x,a,b)=>x<a?a:x>b?b:x, lerp=(a,b,t)=>a+(b-a)*t;
 const angd=(a,b)=>{let d=a-b;while(d>Math.PI)d-=TAU;while(d<-Math.PI)d+=TAU;return d;};
 ${parts.join('\n')}
-return {drawNav,NAV,dSigned,wrapS,drawHeader,headerInfo,drawTracker,drawARView,
+return {setCalm(v){RM=!!v;},drawNav,NAV,dSigned,wrapS,drawHeader,headerInfo,drawTracker,drawARView,
   setTrack(t){N=t.N;L=t.L;DS=t.DS;PX=Float64Array.from(t.PX);PZ=Float64Array.from(t.PZ);TX=Float64Array.from(t.TX);TZ=Float64Array.from(t.TZ);H=Float64Array.from(t.H);SL=Float64Array.from(t.SL);CORNERS=t.C;},
   setWorld(w){world=w;}, ready(){return !!PX;}};
 };`;
