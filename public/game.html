@@ -1176,7 +1176,7 @@ function bracket(c,x,y,s,col,dashed,u){
 function projCam(s,lat,yOff){const p=worldPos(s,lat);_p.set(p.x,p.y+yOff,p.z);_pc.copy(_p).applyMatrix4(camera.matrixWorldInverse);if(_pc.z>-1.2)return null;_p.project(camera);return [(_p.x*0.5+0.5)*cw,(-_p.y*0.5+0.5)*ch];}
 function drawConformal(c,w,u){
   const P=w.player, items=[];
-  if(ui.cam==='cockpit'){drawLadder(c,w,projCam,u);drawTargets(c,w,projCam,u,260);drawHeadingTape(c,w,cw/2,ch*0.2,Math.min(cw*0.42,560*u),u);}
+  if(ui.cam==='cockpit'){drawTargets(c,w,projCam,u,260);drawHeadingTape(c,w,cw/2,ch*0.2,Math.min(cw*0.42,560*u),u);}
   for(const h of w.hazards){if(h.gone)continue;const d=dSigned(P.s,h.s);if(d>2&&d<460)items.push({s:h.s,lat:h.lat,y:h.height*0.55,d,hid:!h.vis,col:(w.alert===2&&h===w.near)?DAN:CAU,haz:true,sz:h.type==='marshal'?0.9:h.type==='tractor'?2.2:1.4});}
   c.save();
   for(const it of items){const p=worldPos(it.s,it.lat);_p.set(p.x,p.y+it.y,p.z);_pc.copy(_p).applyMatrix4(camera.matrixWorldInverse);if(_pc.z>-1)continue;
@@ -1304,11 +1304,16 @@ function arBracket(c,x0,y0,x1,y1,col,dashed,u,tri){
   c.moveTo(x1,y1-k);c.lineTo(x1,y1);c.lineTo(x1-k,y1);c.moveTo(x0+k,y1);c.lineTo(x0,y1);c.lineTo(x0,y1-k);c.stroke();c.setLineDash([]);
   if(tri){const cx=(x0+x1)/2,s=Math.max(7*u,Math.min(13*u,(x1-x0)*0.22));c.fillStyle=col;c.beginPath();c.moveTo(cx-s,y0-s*1.7);c.lineTo(cx+s,y0-s*1.7);c.lineTo(cx,y0-s*0.4);c.closePath();c.fill();}}
 function drawTargets(c,w,proj,u,maxD){
-  const P=w.player;c.save();
-  for(const t of w.traffic){const d=dSigned(P.s,t.s);if(d<4||d>maxD)continue;
+  const P=w.player,labels=[];c.save();
+  const order=w.traffic.map(t=>[dSigned(P.s,t.s),t]).filter(([d])=>d>=4&&d<=maxD).sort((a,b)=>a[0]-b[0]);
+  for(const [d,t] of order){
     const l=proj(t.s,t.lat-1.15,0),r=proj(t.s,t.lat+1.15,0),tp=proj(t.s,t.lat,1.25);if(!l||!r||!tp)continue;
     let x0=Math.min(l[0],r[0]),x1=Math.max(l[0],r[0]),y1=Math.max(l[1],r[1]),y0=tp[1];const minW=12*u;if(x1-x0<minW){const m=(x0+x1)/2;x0=m-minW/2;x1=m+minW/2;}if(y1-y0<minW*0.6)y0=y1-minW*0.6;
-    const pad=(x1-x0)*0.12;arBracket(c,x0-pad,y0-pad,x1+pad,y1+pad*0.5,THREAT_COL[threatOf(w,t)],!t.vis,u,true);}
+    const pad=(x1-x0)*0.12,col=THREAT_COL[threatOf(w,t)];arBracket(c,x0-pad,y0-pad,x1+pad,y1+pad*0.5,col,!t.vis,u,true);
+    // distance sits on top of the box, above the marker
+    const tri=Math.max(7*u,Math.min(13*u,(x1-x0+2*pad)*0.22)),lab=Math.round(d)+' m',fs=Math.round(clamp(13*u*(1.2-d/400),10*u,15*u));
+    c.font=`700 ${fs}px "B612 Mono", monospace`;c.textAlign='center';c.textBaseline='bottom';const lx=(x0+x1)/2,ly=y0-pad-tri*1.7-3*u,lw=c.measureText(lab).width+4*u,box=[lx-lw/2,ly-fs,lx+lw/2,ly];
+    if(!labels.some(b=>box[0]<b[2]&&box[2]>b[0]&&box[1]<b[3]&&box[3]>b[1])){labels.push(box);c.fillStyle=col;c.fillText(lab,lx,ly);}}
   c.restore();}
 function drawHeadingTape(c,w,cx,y,W,u){
   const P=w.player,psi=(P.psi||0)*180/Math.PI,col='rgba(220,240,255,.85)';c.save();c.strokeStyle=col;c.fillStyle=col;c.lineWidth=1.4*u;
@@ -1335,7 +1340,7 @@ function drawARView(c,w,t,u,Wd,Hd,roll,hfovDeg){
     for(let d=Math.max(2,d0-10),k=0;d<=Math.min(240,d1+10);d+=1.5,k++){const a=proj(P0.s+d,lat,0),b=proj(P0.s+d+1.5,lat,0);if(!a||!b)continue;
       c.strokeStyle=k%2?'rgba(255,70,60,.9)':'rgba(255,255,255,.9)';c.lineWidth=Math.max(1.5*u,14*u*14/(d+10));c.globalAlpha=Math.max(0.15,1-d/260);c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke();}
     c.globalAlpha=1;}
-  drawLadder(c,w,proj,u);drawTargets(c,w,proj,u,260);
+  drawTargets(c,w,proj,u,260);
   for(const h of w.hazards){if(h.gone)continue;const d=dSigned(w.player.s,h.s);if(d<3||d>400)continue;const l=proj(h.s,h.lat-h.halfW-0.3,0),r=proj(h.s,h.lat+h.halfW+0.3,0),tp=proj(h.s,h.lat,h.height);if(!l||!r||!tp)continue;
     const col=w.alert===2&&h===w.near?THREAT_COL.red:THREAT_COL.amber;arBracket(c,Math.min(l[0],r[0]),tp[1],Math.max(l[0],r[0]),Math.max(l[1],r[1]),col,!h.vis,u,false);hazIcon(c,h.type,(l[0]+r[0])/2,tp[1]-16*u,16*u,col,true);}
   c.restore();}
