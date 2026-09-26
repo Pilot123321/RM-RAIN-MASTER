@@ -26,6 +26,7 @@ html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(
 #gas{--c:var(--gas);right:0;border-left-width:1px;border-left-color:color-mix(in srgb,var(--gas) 35%,transparent);padding-right:env(safe-area-inset-right);}
 .pedal.on{background:color-mix(in srgb,var(--c) 30%,transparent);}
 .bar{position:fixed;left:26%;right:26%;bottom:max(8px,env(safe-area-inset-bottom));display:flex;justify-content:center;align-items:center;gap:5px;flex-wrap:nowrap;overflow:hidden;}
+.bar button[hidden]{display:none;}
 .bar button{white-space:nowrap;appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:6px clamp(5px,1vw,10px);font:700 clamp(9px,1.15vw,10.5px) var(--mono);letter-spacing:.03em;text-transform:uppercase;}
 .bar button.primary{background:var(--hud);color:#061016;border-color:var(--hud);}
 .bar button[aria-pressed=true]{background:var(--hud);color:#061016;}
@@ -50,8 +51,8 @@ html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(
 <div class="pedal" id="gas">Gas</div>
 <div class="status"><span class="dot" id="dot"></span><span id="conn">Connecting…</span> · <span id="ang">0°</span></div>
 <div class="bar">
-  <button id="bCenter">Center</button><button id="bRun" class="primary">Start</button><button id="bDrop">Hazard</button><button id="bCam">View</button><button id="bAR">AR</button>
-  <button id="bLock">Lock 45°</button><button id="bInv">Invert</button>
+  <button id="bCenter">Center</button><button id="bRun" class="primary">Start</button><button id="bDrop">Hazard</button><button id="bCam">View</button><button id="bAR">AR</button><button id="bCal" hidden>Calibrate</button>
+  <button id="bSetup">Setup</button><button id="bLock" class="more" hidden>Lock 45°</button><button id="bInv" class="more" hidden>Invert</button>
 </div>
 <div class="glow" id="glow"></div>
 <div class="sheet" id="sheet">
@@ -70,6 +71,8 @@ const $=id=>document.getElementById(id), clamp=(x,a,b)=>x<a?a:x>b?b:x;
 const angd=(a,b)=>{let d=a-b;while(d>180)d-=360;while(d<-180)d+=360;return d;};
 const iOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 let lockSaved=45,invSaved=false;try{lockSaved=+localStorage.getItem('rw.lock')||45;invSaved=localStorage.getItem('rw.inv2')==='1';}catch(e){}
+let CAL={pitchOff:0,hfov:66,camH:1.05,yawOff:0};try{Object.assign(CAL,JSON.parse(localStorage.getItem('rw.arcal')||'{}'));}catch(e){}
+function saveCal(){try{localStorage.setItem('rw.arcal',JSON.stringify(CAL));}catch(e){}}
 const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,lock:lockSaved,inv:invSaved,touchSteer:null,games:0,running:false,alert:0};
 
 // ---- connection
@@ -129,13 +132,27 @@ function sampleWorld(now){
     player:Object.assign({},pb,{s:ls(pa.s,pb.s),lat:lp(pa.lat,pb.lat),psi:lp(pa.psi||0,pb.psi||0),v:lp(pa.v,pb.v),latV:lp(pa.latV||0,pb.latV||0)}),
     traffic:pb.traffic?B.w.traffic:B.w.traffic.map((c,j)=>{const ca=A.w.traffic[j];return ca?Object.assign({},c,{s:ls(ca.s,c.s),lat:lp(ca.lat,c.lat),v:lp(ca.v,c.v)}):c;}),
     dNear:lp(A.w.dNear,B.w.dNear)});}
+// AR calibration: line up the drawn horizon and lane with the camera image
+let calOn=false,calDrag=null;
+function drawCal(A,Wd,H,u){cx.save();cx.strokeStyle='rgba(255,194,71,.95)';cx.lineWidth=2*u;cx.setLineDash([10*u,6*u]);
+  cx.beginPath();cx.moveTo(0,A.horizonY);cx.lineTo(Wd,A.horizonY);cx.stroke();cx.setLineDash([]);
+  cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(Wd*0.27,H*0.2,Wd*0.46,H*0.3);cx.fillStyle='#FFC247';cx.font=`700 ${13*u}px "B612 Mono", monospace`;cx.textAlign='center';
+  cx.fillText('CALIBRATE AR',Wd/2,H*0.26);cx.font=`${11*u}px "B612 Mono", monospace`;cx.fillStyle='#E3EBF0';
+  cx.fillText('Drag up/down: put the dashed line on the real horizon',Wd/2,H*0.32);cx.fillText('Drag left/right: widen or narrow the lane to match the road',Wd/2,H*0.37);
+  cx.fillText(`pitch ${(CAL.pitchOff*57.3).toFixed(1)}°  ·  field of view ${CAL.hfov.toFixed(0)}°  ·  height ${CAL.camH.toFixed(2)} m`,Wd/2,H*0.43);
+  cx.restore();}
+function calStart(e){if(!calOn||e.target.closest('.bar'))return;e.preventDefault();e.stopPropagation();calDrag={x:e.clientX,y:e.clientY,p:CAL.pitchOff,f:CAL.hfov};}
+function calMove(e){if(!calDrag)return;const dy=(e.clientY-calDrag.y)/innerHeight,dx=(e.clientX-calDrag.x)/innerWidth;
+  CAL.pitchOff=clamp(calDrag.p-dy*0.9,-0.6,0.6);CAL.hfov=clamp(calDrag.f-dx*60,35,110);}
+function calEnd(){if(calDrag){calDrag=null;saveCal();}}
+addEventListener('pointerdown',calStart,true);addEventListener('pointermove',calMove);addEventListener('pointerup',calEnd);
 // AR: the rear camera is the background, the overlay is drawn where things would be in front of you
 async function setAR(on){
   if(on){try{camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
       video.srcObject=camStream;video.hidden=false;await video.play().catch(()=>{});arOn=true;}
     catch(e){arOn=false;$('hudwait').hidden=false;$('hudwait').textContent=!window.isSecureContext?'The camera needs the https:// address or the USB address.':'Camera access was refused or is not available.';setTimeout(status,3000);}}
   else{arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.hidden=true;video.srcObject=null;}
-  $('bAR').setAttribute('aria-pressed',arOn?'true':'false');}
+  $('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bCal').hidden=!arOn;if(!arOn){calOn=false;}}
 function drawHud(now){
   cx.setTransform(1,0,0,1,0,0);
   if(arOn)cx.clearRect(0,0,cv.width,cv.height);else{cx.fillStyle='#000';cx.fillRect(0,0,cv.width,cv.height);}
@@ -146,8 +163,10 @@ function drawHud(now){
   HUD.setWorld(view);
   const H=cv.height,Wd=cv.width,u=H/420;
   if(arOn){
-    const uu=u*1.05,flash=true,roll=(S.hasMotion?S.angle*(S.inv?-1:1):0)*Math.PI/180;
-    HUD.drawARView(cx,view,now/1000,uu,Wd,H,roll,68);
+    const uu=u*1.05,flash=true;
+    const cam={pitch:(S.hasMotion&&S.pitch!=null?S.pitch:0)+CAL.pitchOff,hfov:CAL.hfov,camH:CAL.camH,yawOff:CAL.yawOff,vw:video.videoWidth||0,vh:video.videoHeight||0};
+    const A=HUD.drawARView(cx,view,now/1000,uu,Wd,H,cam);
+    if(calOn)drawCal(A,Wd,H,uu);
     // readable bands for the header and lap tracker over a bright camera image
     const bx=Wd*0.27,bw=Wd*0.46,hh=H*0.12,th=H*0.14,ty=H-H*0.2-th;
     cx.fillStyle='rgba(0,0,0,.38)';cx.fillRect(bx,0,bw,hh+10*u);cx.fillRect(bx,ty-4*u,bw,th+8*u);
@@ -161,7 +180,8 @@ function send(o){if(ws&&ws.readyState===1){ws.send(typeof o==='string'?o:JSON.st
 // ---- steering from gravity: the angle of "up" in the phone's screen plane
 function onMotion(e){
   const a=e.accelerationIncludingGravity;if(!a||a.x==null)return;
-  let ax=a.x,ay=a.y;if(iOS){ax=-ax;ay=-ay;}
+  let ax=a.x,ay=a.y,az=a.z||0;if(iOS){ax=-ax;ay=-ay;az=-az;}
+  const gm=Math.hypot(ax,ay,az)||9.8;S.pitchRaw=Math.asin(clamp(az/gm,-1,1));S.pitch=S.pitch==null?S.pitchRaw:S.pitch+(S.pitchRaw-S.pitch)*0.08;
   S.gx+=(ax-S.gx)*0.35;S.gy+=(ay-S.gy)*0.35;
   if(Math.hypot(S.gx,S.gy)<2.5)return;           // phone lying flat: hold last angle
   S.hasMotion=true;
@@ -175,7 +195,7 @@ function recenter(){if(S.hasMotion)S.neutral=Math.atan2(S.gx,S.gy)*180/Math.PI;S
 // ---- pedals (multi-touch)
 function pedal(el,key){
   const on=v=>{S[key]=v;el.classList.toggle('on',!!v);if(v&&navigator.vibrate)navigator.vibrate(12);};
-  el.addEventListener('pointerdown',e=>{e.preventDefault();el.setPointerCapture(e.pointerId);on(1);});
+  el.addEventListener('pointerdown',e=>{if(calOn)return;e.preventDefault();el.setPointerCapture(e.pointerId);on(1);});
   for(const ev of ['pointerup','pointercancel','lostpointercapture'])el.addEventListener(ev,()=>on(0));
 }
 pedal($('gas'),'gas');pedal($('brake'),'brake');
@@ -192,6 +212,8 @@ $('bRun').onclick=()=>send({t:'cmd',c:S.running?'stop':'start'});
 $('bDrop').onclick=()=>send({t:'cmd',c:'drop'});
 $('bCam').onclick=()=>send({t:'cmd',c:'cam'});
 $('bAR').onclick=()=>setAR(!arOn);
+$('bSetup').onclick=()=>{const open=$('bLock').hidden;document.querySelectorAll('.more').forEach(b=>b.hidden=!open);$('bSetup').setAttribute('aria-pressed',open?'true':'false');};
+$('bCal').onclick=()=>{calOn=!calOn;$('bCal').setAttribute('aria-pressed',calOn?'true':'false');$('bCal').textContent=calOn?'Done':'Calibrate';};
 function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttribute('aria-pressed',S.inv?'true':'false');
   try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv2',S.inv?'1':'0');}catch(e){}}
 $('bLock').onclick=()=>{S.lock=S.lock===30?45:S.lock===45?70:30;syncOpts();};

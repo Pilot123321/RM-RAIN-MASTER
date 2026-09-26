@@ -632,6 +632,38 @@ function combinedSlip(k,a,D,B){
   if(Bs>2.2)F=Math.max(F,0.74*D);   // fully sliding rubber keeps ~3/4 of peak grip (locked wheels, big drift angles)
   return [F*sx/sm,F*sy/sm];
 }
+/* Barrier contact: each corner of the car (5.4 x 1.9 m footprint) is tested against the wall line at
+   lat = +-WALL. A penetrating corner moving into the wall gets a normal impulse with restitution
+   j = (1+e) vn / (1/m + (r x n)^2 / Iz) and a Coulomb friction impulse along the wall (|jt| <= mu_w j),
+   both applied at the contact point, so a glancing hit scrubs speed and a nose-first hit spins the car
+   and pushes it back onto the track (standard 2D rigid-body collision response). */
+const WALL_E=0.32, WALL_MU=0.45, CORNERS4=[[2.7,0.95],[2.7,-0.95],[-2.55,0.95],[-2.55,-0.95]];
+function wallContact(P){
+  const cs=Math.cos(P.psi), sn=Math.sin(P.psi);
+  let Vs=P.vx*cs-P.vy*sn, Vn=P.vx*sn+P.vy*cs, r=P.r, hit=0;
+  for(const side of [1,-1]){
+    let worst=null,pen=0;
+    for(const [a,b] of CORNERS4){
+      // corner offset in the track frame: a along the car (forward +), b across (right +)
+      const ps=a*cs-b*sn, pn=a*sn+b*cs, lat=P.lat+pn;
+      const over=side>0?lat-WALL:-WALL-lat;
+      if(over>pen){pen=over;worst=[ps,pn];}
+    }
+    if(!worst)continue;
+    const [ps,pn]=worst, nrm=side;                          // wall normal points into the wall (+n on the right)
+    P.lat-=nrm*pen;                                          // resolve penetration
+    const vn=(Vn+r*ps)*nrm;                                  // contact-point velocity into the wall
+    if(vn<=0)continue;
+    const rxn=ps*nrm, k=1/CAR.m+rxn*rxn/CAR.Iz, j=(1+WALL_E)*vn/k;
+    Vn-=nrm*j/CAR.m; r-=rxn*j/CAR.Iz;
+    const vt=Vs-r*pn, kt=1/CAR.m+pn*pn/CAR.Iz, jt=-Math.sign(vt)*Math.min(WALL_MU*j,Math.abs(vt)/kt);
+    Vs+=jt/CAR.m; r+=(-pn)*jt/CAR.Iz;
+    hit=Math.max(hit,vn);
+  }
+  if(hit>0){P.vx=Vs*cs+Vn*sn;P.vy=-Vs*sn+Vn*cs;P.r=r;P.hitV=Math.max(P.hitV||0,hit);
+    // wheels pick up the new ground speed (they skid briefly otherwise)
+    P.wf=Math.max(0,Math.min(P.wf,P.vx/RW+2));}
+}
 function driveDynamics(P,w,inp,dt,assist){
   const L=CAR.lf+CAR.lr, g=9.81, aids=w.opts.aids!==false;
   // aquaplaning in standing water at high speed, and wet painted kerbs
@@ -701,6 +733,7 @@ function driveDynamics(P,w,inp,dt,assist){
     const sdot=(P.vx*Math.cos(P.psi)-P.vy*Math.sin(P.psi))/Math.max(0.2,1-kap*P.lat);
     P.latV=P.vx*Math.sin(P.psi)+P.vy*Math.cos(P.psi);
     P.lat+=P.latV*h; P.psi+=(P.r-kap*sdot)*h; P.s=wrapS(P.s+sdot*h);
+    wallContact(P);
   }
   P.psi=angd(P.psi,0); P.v=Math.hypot(P.vx,P.vy); P.slideV=0;
   P.sliding=Math.abs(P.ar)>0.12||P.kr>0.2||P.kf<-0.3||P.kr<-0.3;
@@ -758,9 +791,16 @@ function step(w,dt,inp){
   } else {
     driveDynamics(P,w,inp,dt,o.steer==='assist');
   }
-  // walls: remove the velocity into the wall, scrub speed, crash if the hit is hard
+  // walls. You drive: rigid-body impulses at the car's corners (bounce, scrape, yaw) are applied inside
+  // driveDynamics; here we only count hits and end the run on a heavy impact. Autopilot: simple clamp.
+  if(drive){
+    if(P.hitV>0){if(!P.onWall&&w.t-(P.lastHitT||-9)>0.4){w.scrapes++;}P.onWall=true;P.lastHitT=w.t;
+      if(P.hitV>24){w.crash={what:'the wall',v:P.v};w.tArrive=w.t;finish(w,'crash');return;}}
+    else if(w.t-(P.lastHitT||-9)>0.25)P.onWall=false;
+    P.hitV=0;
+  }
   const lim=WALL-1.05;
-  if(Math.abs(P.lat)>lim){
+  if(!drive&&Math.abs(P.lat)>lim){
     const sg=Math.sign(P.lat), vl=Math.abs(P.latV); P.lat=sg*lim;
     if(!P.onWall){P.onWall=true;w.scrapes++;
       if(vl>9&&P.v>20){w.crash={what:'the wall',v:P.v};w.tArrive=w.t;finish(w,'crash');return;}
@@ -1194,7 +1234,7 @@ function bracket(c,x,y,s,col,dashed,u){
 function projCam(s,lat,yOff){const p=worldPos(s,lat);_p.set(p.x,p.y+yOff,p.z);_pc.copy(_p).applyMatrix4(camera.matrixWorldInverse);if(_pc.z>-1.2)return null;_p.project(camera);return [(_p.x*0.5+0.5)*cw,(-_p.y*0.5+0.5)*ch];}
 function drawConformal(c,w,u){
   const P=w.player, items=[];
-  if(ui.cam==='cockpit'){drawTargets(c,w,projCam,u,260);drawHeadingTape(c,w,cw/2,ch*0.2,Math.min(cw*0.42,560*u),u);}
+  if(ui.cam==='cockpit'){drawTargets(c,w,projCam,u,260);}
   for(const h of w.hazards){if(h.gone)continue;const d=dSigned(P.s,h.s);if(d>2&&d<460)items.push({s:h.s,lat:h.lat,y:h.height*0.55,d,hid:!h.vis,col:(w.alert===2&&h===w.near)?DAN:CAU,haz:true,sz:h.type==='marshal'?0.9:h.type==='tractor'?2.2:1.4});}
   c.save();
   for(const it of items){const p=worldPos(it.s,it.lat);_p.set(p.x,p.y+it.y,p.z);_pc.copy(_p).applyMatrix4(camera.matrixWorldInverse);if(_pc.z>-1)continue;
@@ -1343,25 +1383,65 @@ function drawHeadingTape(c,w,cx,y,W,u){
   else if(hi.kind==='haz'){c.fillStyle=w.alert===2?THREAT_COL.red:THREAT_COL.amber;c.textAlign='center';c.fillText(hi.text.toUpperCase()+' '+Math.round(hi.dist)+' M',cx,y-8*u);}
   c.restore();}
 // phone AR: pinhole camera at driver eye height, heading-stabilised, rolled to match how the phone is tilted
-function drawARView(c,w,t,u,Wd,Hd,roll,hfovDeg){
-  const E=egoPose(w),rx=-E.fz,rz=E.fx,f=(Wd/2)/Math.tan(hfovDeg*Math.PI/360),cx=Wd/2,hy=Hd*0.46,camH=1.05;
-  const proj=(s,lat,yOff)=>{const p=worldPos(s,lat),dx=p.x-E.x,dz=p.z-E.z,rt=dx*rx+dz*rz,fw=dx*E.fx+dz*E.fz;if(fw<1.5)return null;return [cx+f*rt/fw,hy+f*(camH-yOff)/fw];};
-  c.save();c.translate(Wd/2,Hd/2);c.rotate(-roll);c.translate(-Wd/2,-Hd/2);
-  // track edges on the ground: white lines at the track edge, faint lines at the walls, red/white kerbs in corners
-  const P0=w.player, edge=(lat,col,base,dash)=>{let prev=null;c.strokeStyle=col;if(dash)c.setLineDash(dash);
+// cam: {pitch (rad, camera tilted down +), hfov (deg, of the video), vw, vh (video size), camH (m), yawOff (rad)}
+function arCamera(w,Wd,Hd,cam){
+  const E=egoPose(w),rx=-E.fz,rz=E.fx,sc=cam.vw?Math.max(Wd/cam.vw,Hd/cam.vh):1,fv=((cam.vw||Wd)/2)/Math.tan(cam.hfov*Math.PI/360),f=fv*sc;
+  const ct=Math.cos(cam.pitch),st=Math.sin(cam.pitch),cy2=Math.cos(cam.yawOff||0),sy2=Math.sin(cam.yawOff||0),cx=Wd/2,cy=Hd/2,camH=cam.camH;
+  const projXZ=(x,z,yOff)=>{const dx=x-E.x,dz=z-E.z;let rt=dx*rx+dz*rz,fw=dx*E.fx+dz*E.fz;const r2=rt*cy2-fw*sy2;fw=fw*cy2+rt*sy2;rt=r2;
+    const y=yOff-camH,dep=fw*ct-y*st,up=y*ct+fw*st;if(dep<0.8)return null;return [cx+f*rt/dep,cy-f*up/dep,dep];};
+  return {E,f,projXZ,proj:(s,lat,yOff)=>{const p=worldPos(s,lat);return projXZ(p.x,p.z,yOff);},horizonY:cy-f*Math.tan(cam.pitch)};
+}
+function arBox(c,A,x,z,hx,hz,halfL,halfW,hgt,col,dashed,u,fill){
+  // eight corners of an oriented box on the road, twelve edges, translucent footprint
+  const rx=-hz,rz=hx,pts=[];
+  for(const [a,b] of [[halfL,halfW],[halfL,-halfW],[-halfL,-halfW],[-halfL,halfW]])for(const y of [0,hgt])pts.push(A.projXZ(x+hx*a+rx*b,z+hz*a+rz*b,y));
+  if(pts.some(p=>!p))return null;
+  const B=[0,2,4,6],T=[1,3,5,7];
+  c.save();c.strokeStyle=col;c.lineWidth=1.8*u;c.lineJoin='round';if(dashed)c.setLineDash([4*u,3*u]);
+  if(fill){c.fillStyle=fill;c.beginPath();B.forEach((i,k)=>k?c.lineTo(pts[i][0],pts[i][1]):c.moveTo(pts[i][0],pts[i][1]));c.closePath();c.fill();}
+  c.beginPath();for(const R of [B,T]){R.forEach((i,k)=>k?c.lineTo(pts[i][0],pts[i][1]):c.moveTo(pts[i][0],pts[i][1]));c.closePath();}
+  for(let k=0;k<4;k++){c.moveTo(pts[B[k]][0],pts[B[k]][1]);c.lineTo(pts[T[k]][0],pts[T[k]][1]);}c.stroke();c.restore();
+  let top=pts[1];for(const i of T)if(pts[i][1]<top[1])top=pts[i];
+  const tc=A.projXZ(x,z,hgt);return {x:tc?tc[0]:top[0],y:top[1]};
+}
+function drawARView(c,w,t,u,Wd,Hd,cam){
+  const A=arCamera(w,Wd,Hd,cam),proj=A.proj,P0=w.player;
+  c.save();
+  // drivable surface, track edges, walls, kerbs: all on the ground plane
+  const L1=[],R1=[];for(let d=2;d<=220;d+=d<40?2:5){const a=proj(P0.s+d,-HW,0),b=proj(P0.s+d,HW,0);if(a&&b){L1.push(a);R1.push(b);}}
+  if(L1.length>2){c.fillStyle='rgba(57,230,180,.07)';c.beginPath();L1.forEach((p,k)=>k?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]));for(let k=R1.length-1;k>=0;k--)c.lineTo(R1[k][0],R1[k][1]);c.closePath();c.fill();}
+  const edge=(lat,col,base)=>{let prev=null;c.strokeStyle=col;
     for(let d=2;d<=240;d+=d<40?2:5){const q=proj(P0.s+d,lat,0);if(!q){prev=null;continue;}
       if(prev){c.globalAlpha=Math.max(0.12,1-d/260);c.lineWidth=Math.max(1*u,base*u*14/(d+10));c.beginPath();c.moveTo(prev[0],prev[1]);c.lineTo(q[0],q[1]);c.stroke();}prev=q;}
-    c.globalAlpha=1;c.setLineDash([]);};
+    c.globalAlpha=1;};
   edge(-WALL,'rgba(150,185,210,.55)',5);edge(WALL,'rgba(150,185,210,.55)',5);
   edge(-HW,'rgba(235,248,255,.95)',9);edge(HW,'rgba(235,248,255,.95)',9);
   for(const cn of CORNERS){const d0=dSigned(P0.s,cn.s0),d1=dSigned(P0.s,cn.s1);if(d1<0||d0>240)continue;const lat=cn.sg*(HW-0.55);
     for(let d=Math.max(2,d0-10),k=0;d<=Math.min(240,d1+10);d+=1.5,k++){const a=proj(P0.s+d,lat,0),b=proj(P0.s+d+1.5,lat,0);if(!a||!b)continue;
       c.strokeStyle=k%2?'rgba(255,70,60,.9)':'rgba(255,255,255,.9)';c.lineWidth=Math.max(1.5*u,14*u*14/(d+10));c.globalAlpha=Math.max(0.15,1-d/260);c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke();}
     c.globalAlpha=1;}
-  drawTargets(c,w,proj,u,260);
-  for(const h of w.hazards){if(h.gone)continue;const d=dSigned(w.player.s,h.s);if(d<3||d>400)continue;const l=proj(h.s,h.lat-h.halfW-0.3,0),r=proj(h.s,h.lat+h.halfW+0.3,0),tp=proj(h.s,h.lat,h.height);if(!l||!r||!tp)continue;
-    const col=w.alert===2&&h===w.near?THREAT_COL.red:THREAT_COL.amber;arBracket(c,Math.min(l[0],r[0]),tp[1],Math.max(l[0],r[0]),Math.max(l[1],r[1]),col,!h.vis,u,false);hazIcon(c,h.type,(l[0]+r[0])/2,tp[1]-16*u,16*u,col,true);}
-  c.restore();}
+  // cars as 3D boxes, far to near so near ones draw on top; distance on top of each box
+  const labels=[],items=[];
+  for(const tr of w.traffic){const d=dSigned(P0.s,tr.s);if(d>3&&d<260)items.push({d,tr});}
+  for(const h of w.hazards){if(h.gone)continue;const d=dSigned(P0.s,h.s);if(d>2&&d<400)items.push({d,h});}
+  items.sort((a,b)=>b.d-a.d);
+  const tops=[];
+  for(const it of items){
+    if(it.tr){const t2=it.tr,p=worldPos(t2.s,t2.lat),hd=headingAt(t2.s,carYaw(t2)),col=THREAT_COL[threatOf(w,t2)];
+      const top=arBox(c,A,p.x,p.z,hd[0],hd[1],2.7,0.95,0.95,col,!t2.vis,u,t2.vis?'rgba(255,255,255,.06)':null);
+      if(top)tops.push({d:it.d,col,top,lab:Math.round(it.d)+' m'});}
+    else{const h=it.h,p=worldPos(h.s,h.lat),hd=headingAt(h.s,h.yaw||0),col=w.alert===2&&h===w.near?THREAT_COL.red:THREAT_COL.amber;
+      const top=arBox(c,A,p.x,p.z,hd[0],hd[1],h.halfLen,h.halfW,h.height,col,!h.vis,u,'rgba(255,194,71,.14)');
+      if(top){hazIcon(c,h.type,top.x,top.y-18*u,16*u,col,true);tops.push({d:it.d,col,top:{x:top.x,y:top.y-30*u},lab:h.label.toUpperCase()+' '+Math.round(it.d)+' m'});}}
+  }
+  // labels: nearest first, skip any that would overlap
+  tops.sort((a,b)=>a.d-b.d);c.textAlign='center';c.textBaseline='bottom';
+  for(const T of tops){const fs=Math.round(clamp(14*u*(1.2-T.d/400),10*u,16*u));c.font=`700 ${fs}px "B612 Mono", monospace`;
+    const lw=c.measureText(T.lab).width+6*u,box=[T.top.x-lw/2,T.top.y-6*u-fs,T.top.x+lw/2,T.top.y-6*u];
+    if(labels.some(b=>box[0]<b[2]&&box[2]>b[0]&&box[1]<b[3]&&box[3]>b[1]))continue;labels.push(box);
+    c.fillStyle='rgba(0,0,0,.45)';c.fillRect(box[0],box[1],lw,fs+2*u);c.fillStyle=T.col;c.fillText(T.lab,T.top.x,T.top.y-5*u);}
+  c.restore();
+  return A;}
 function navRegion(u){
   const w=Math.round(clamp(cw*(NAV.big?0.5:0.34),190,NAV.big?640:450)), h=Math.round(Math.min(w*1.0,ch*0.84));
   return {x:cw-w-Math.max(12,cw*0.045), y:Math.max(12,ch*0.1), w, h:Math.min(h,ch*0.78)};
@@ -1409,10 +1489,7 @@ function drawNav(c,w,t,dt,u,Rin){
     c.globalAlpha=1;c.setLineDash([]);};
   strip(()=>-WALL,HC.faint,1*u); strip(()=>WALL,HC.faint,1*u);
   strip(()=>-HW,HC.mid,1.8*u,null,true); strip(()=>HW,HC.mid,1.8*u,null,true);
-  // distance rungs every 50 m, fixed to the track so they stream past
-  c.strokeStyle=HC.faint;c.lineWidth=1*u;
-  for(let s0=Math.ceil((P.s-D0)/50)*50;s0<P.s+dmax;s0+=50){const a=worldPos(s0,-HW),b=worldPos(s0,HW),la=loc(a.x,a.z),lb=loc(b.x,b.z);if(la[1]<minFw||lb[1]<minFw)continue;const qa=pr(la[0],la[1]),qb=pr(lb[0],lb[1]);c.globalAlpha=fade(la[1]);c.beginPath();c.moveTo(qa[0],qa[1]);c.lineTo(qb[0],qb[1]);c.stroke();}
-  c.globalAlpha=1;
+
   // corner labels
   for(const cn of CORNERS){const d=dSigned(P.s,cn.apex);if(d<0||d>dmax)continue;const p=worldPos(cn.apex,-cn.sg*(WALL+5)),l=loc(p.x,p.z);if(l[1]<minFw)continue;const q=pr(l[0],l[1]);c.globalAlpha=fade(l[1]);hudTag(c,q[0],q[1],'T'+cn.n,HC.mid,u,8.5);c.globalAlpha=1;}
   // footprints in perspective
