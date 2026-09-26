@@ -297,7 +297,7 @@ td.n{color:var(--faint);}
         <div class="meter" id="mSteer"><span>Steering <b id="mSteerV">0°</b></span><div class="track"><div class="fill"></div></div></div>
         <div class="meter" id="mGas"><span>Gas</span><div class="track"><div class="fill"></div></div></div>
         <div class="meter" id="mBrake"><span>Brake</span><div class="track"><div class="fill"></div></div></div>
-        <p class="fine">Linking a phone switches the driver to You drive. Full steering feels most like a real wheel.</p>
+        <p class="fine">Linking a phone switches to You drive with Full steering. Traction and stability control stay on.</p>
       </div>
     </div>
   </section>
@@ -623,12 +623,13 @@ function steerTo(c,target,dt){
    axle load (static + aero downforce + longitudinal transfer). Wet grip falls with rain.
    Equations follow the racing bicycle model of Liniger, Domahidi & Morari (2015); lane assist is a
    pure-pursuit steering controller (Coulter 1992) feeding the same model. Signs: +y, +r, +delta = right. */
-const CAR={m:798,Iz:1150,lf:1.95,lr:1.65,h:0.3,ClA:4.4,CdA:1.35,aeroF:0.44,P:760e3,Fmax:13000,Fbrake:5.5*798*9.81,bb:0.57,B:10,C:1.9,E:0.97,dmax:0.34,rho:1.2};
+const CAR={m:798,Iz:1150,lf:1.95,lr:1.65,h:0.3,ClA:4.4,CdA:1.35,aeroF:0.42,P:760e3,Fmax:13000,Fbrake:5.5*798*9.81,bb:0.57,B:10,Bf:9,Br:11,C:1.9,E:0.97,rearMu:1.08,dmax:0.34,rho:1.2};
 function tyreMu(w){return 1.5-0.5*w.rain;}
-function pacejka(a,D){const Ba=CAR.B*a;return D*Math.sin(CAR.C*Math.atan(Ba-CAR.E*(Ba-Math.atan(Ba))));}
+function pacejka(a,D,B){const Ba=(B||CAR.B)*a;return D*Math.sin(CAR.C*Math.atan(Ba-CAR.E*(Ba-Math.atan(Ba))));}
 function driveDynamics(P,w,inp,dt,assist){
   const L=CAR.lf+CAR.lr, g=9.81, mu=tyreMu(w), n=4, h=dt/n;
-  P.thr=inp.throttle; P.brk=inp.brake; P.braking=inp.brake>0.1?1:0;
+  // pedals have travel: binary buttons ramp in instead of slamming to 100%
+  P.thr+=clamp(inp.throttle-P.thr,-5*dt,3.2*dt); P.brk+=clamp(inp.brake-P.brk,-8*dt,7*dt); P.braking=P.brk>0.1?1:0;
   P.steer+=clamp(inp.steer-P.steer,-5*dt,5*dt);
   // steering angle at the wheels
   let dTarget;
@@ -638,8 +639,16 @@ function driveDynamics(P,w,inp,dt,assist){
     const me=worldPos(P.s,P.lat), tg=worldPos(P.s+Ld,tl), hd=headingAt(P.s,P.psi);
     const dx=tg.x-me.x, dz=tg.z-me.z, fw=dx*hd[0]+dz*hd[1], rt=dx*(-hd[1])+dz*hd[0];
     const alpha=Math.atan2(rt,fw), ld=Math.hypot(dx,dz);
-    dTarget=Math.atan(2*L*Math.sin(alpha)/ld)-0.012*P.r;
-  } else dTarget=P.steer*CAR.dmax/(1+P.vx*P.vx/900);
+    const kpp=2*Math.sin(alpha)/ld;
+    dTarget=Math.atan(L*kpp)+0.06*(kpp*P.vx-P.r);                 // pure pursuit + yaw-rate tracking
+  } else {
+    // full lock is scaled to what the front tyres can hold at this speed, so steering alone cannot spin the car
+    const vv=Math.max(P.vx,6), ayMax=mu*(g+0.5*CAR.rho*CAR.ClA*vv*vv/CAR.m);
+    dTarget=P.steer*clamp(L*ayMax/(vv*vv)+0.1,0.05,CAR.dmax);   // kinematic angle at the grip limit + front slip at peak grip
+  }
+  // stability control: countersteer against body slip
+  const beta=Math.atan2(P.vy,Math.max(P.vx,3));
+  if(P.vx>5&&Math.abs(beta)>0.035) dTarget+=0.7*(beta-Math.sign(beta)*0.035);
   dTarget=clamp(dTarget,-CAR.dmax,CAR.dmax);
   P.delta+=clamp(dTarget-P.delta,-2.2*dt,2.2*dt);
   const dl=P.delta, cd=Math.cos(dl), sd=Math.sin(dl);
@@ -650,12 +659,15 @@ function driveDynamics(P,w,inp,dt,assist){
     const Fzr=Math.max(500,CAR.m*g*CAR.lf/L+down*(1-CAR.aeroF)+CAR.m*P.ax*CAR.h/L);
     const Fb=P.brk*CAR.Fbrake*(vx>0.2?1:0);
     let Fxf=-Fb*CAR.bb, Fxr=P.thr*Math.min(CAR.P/Math.max(vx,4),CAR.Fmax)-Fb*(1-CAR.bb);
-    Fxf=clamp(Fxf,-mu*Fzf,mu*Fzf); Fxr=clamp(Fxr,-mu*Fzr,mu*Fzr*(assist?0.8:0.98));
+    const muR=mu*CAR.rearMu;
+    // traction control: leave the rear tyres enough grip for the cornering force they are already making
+    const tc=Math.sqrt(Math.max(0,(0.9*muR*Fzr)**2-(P.FryPrev||0)**2));
+    Fxf=clamp(Fxf,-mu*Fzf,mu*Fzf); Fxr=clamp(Fxr,-muR*Fzr,Math.min(tc,muR*Fzr*(assist?0.85:0.95)));
     let ax,ay,rd;
     if(vx>3){
       const af=dl-Math.atan2(P.vy+CAR.lf*P.r,vx), ar=-Math.atan2(P.vy-CAR.lr*P.r,vx);
-      const Df=mu*Fzf*Math.sqrt(Math.max(0.05,1-(Fxf/(mu*Fzf))**2)), Dr=mu*Fzr*Math.sqrt(Math.max(0.05,1-(Fxr/(mu*Fzr))**2));
-      const Ffy=pacejka(af,Df), Fry=pacejka(ar,Dr);
+      const Df=mu*Fzf*Math.sqrt(Math.max(0.05,1-(Fxf/(mu*Fzf))**2)), Dr=muR*Fzr*Math.sqrt(Math.max(0.05,1-(Fxr/(muR*Fzr))**2));
+      const Ffy=pacejka(af,Df,CAR.Bf), Fry=pacejka(ar,Dr,CAR.Br); P.FryPrev=Fry;
       ax=(Fxr+Fxf*cd-Ffy*sd-drag)/CAR.m+P.vy*P.r;
       ay=(Fry+Ffy*cd+Fxf*sd)/CAR.m-vx*P.r;
       rd=(CAR.lf*(Ffy*cd+Fxf*sd)-CAR.lr*Fry)/CAR.Iz;
@@ -1407,7 +1419,7 @@ async function remoteInit(){
       if(m.t==='hello'){const hh=clamp(Math.round(m.h*Math.min(1.5,m.dpr||1)*0.8),280,440),ww=clamp(Math.round(hh*m.w/m.h),280,1000);PH.cv.width=ww;PH.cv.height=hh;}
       else if(m.t==='in'){REMOTE.steer=+m.s||0;REMOTE.gas=+m.g||0;REMOTE.brake=+m.b||0;REMOTE.t=performance.now();REMOTE.n=(REMOTE.n||0)+1;}
       else if(m.t==='phones'){const was=REMOTE.phones;REMOTE.phones=m.n;remotePanel();
-        if(m.n>0&&was===0){if(!running&&ui.driver!=='drive'){ui.driver='drive';syncControls();applyLive();}toast('<b class="info">Phone wheel linked</b>Tilt to steer, left button brakes, right button accelerates.');}
+        if(m.n>0&&was===0){if(!running){ui.driver='drive';ui.steer='full';syncControls();applyLive();}toast('<b class="info">Phone wheel linked</b>Full steering: tilt to turn the wheels. Traction and stability control are on.');}
         if(m.n===0&&was>0)toast('<b class="info">Phone wheel disconnected</b>Keyboard controls still work.');}
       else if(m.t==='cmd'){if(m.c==='start'&&!running)startRun();else if(m.c==='stop'&&running)stopRun();else if(m.c==='drop')dropHazard();else if(m.c==='cam'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}}};
     ws.onclose=()=>{REMOTE.phones=0;remotePanel();setTimeout(connect,1000);};};
@@ -1740,7 +1752,7 @@ new ResizeObserver(resize).observe(stage);resize();
 buildTrack(defaultLoop(),'Street circuit');buildTrackMeshes();drawMini();renderScenCards();
 $('rain').value=Math.round(ui.rain*100);syncControls();resetWorld();drawLegend();
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{drawLegend();drawMini();});
-window.__dbg={scene,renderer,sprayPts,rainL,get tg(){return trackGroup;},hc};
+window.__dbg={scene,renderer,sprayPts,rainL,get tg(){return trackGroup;},hc,get world(){return world;},ui,REMOTE,kap:s=>sampleArr(KC,s)};
 requestAnimationFrame(frame);
 setTimeout(renderBench,60);
 remoteInit();
