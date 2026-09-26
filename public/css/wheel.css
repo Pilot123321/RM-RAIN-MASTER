@@ -33,11 +33,29 @@ html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(
 .sheet button{appearance:none;border:0;border-radius:12px;background:var(--hud);color:#061016;font:700 15px var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:16px 28px;}
 .warn{color:var(--amb)!important;}
 
-/* AR: gas and brake become vertical sliders (the thumb's height is the pedal position) */
-.pedal .track,.pedal .pv{display:none;}
-body.ar .pedal{background:none;}
-body.ar .pedal .track{display:block;position:absolute;left:50%;top:12%;bottom:20%;width:16px;margin-left:-8px;border-radius:8px;
-  background:rgba(0,0,0,.4);border:1px solid color-mix(in srgb,var(--c) 60%,transparent);overflow:hidden;}
-body.ar .pedal .track b{position:absolute;left:0;right:0;bottom:0;height:calc(var(--v,0) * 100%);background:var(--c);opacity:.85;}
-body.ar .pedal .track b::before{content:"";position:absolute;left:-2px;right:-2px;top:0;height:3px;background:#fff;}
-body.ar .pedal .pv{display:block;position:absolute;top:calc(12% - 26px);left:0;right:0;text-align:center;font:700 14px var(--mono);color:var(--c);}
+/* AR is a view of what the driver sees while the autopilot drives: no pedals, no steering controls */
+body.ar .pedal,body.ar #bLock,body.ar #bInv{display:none!important;}
+
+/* car behind you inside 50 m: a strong glow on the screen edge it is coming from (bottom when it is straight
+   behind), brighter as it closes; a double flash when it first arrives, a quick pulse while it closes fast.
+   --l/--r/--b (0..1) and --rc (colour) are set from the simulation. */
+@property --l{syntax:"<number>";inherits:false;initial-value:0;}
+@property --r{syntax:"<number>";inherits:false;initial-value:0;}
+@property --b{syntax:"<number>";inherits:false;initial-value:0;}
+#rearfx{position:fixed;z-index:5;inset:0;pointer-events:none;--rc:196 248 255;mix-blend-mode:screen;
+  background:linear-gradient(to right,rgb(var(--rc) / calc(var(--l) * .9)),rgb(var(--rc) / calc(var(--l) * .35)) 7%,rgb(var(--rc) / 0) 26%),
+    linear-gradient(to left,rgb(var(--rc) / calc(var(--r) * .9)),rgb(var(--rc) / calc(var(--r) * .35)) 7%,rgb(var(--rc) / 0) 26%),
+    linear-gradient(to top,rgb(var(--rc) / calc(var(--b) * .85)),rgb(var(--rc) / calc(var(--b) * .3)) 8%,rgb(var(--rc) / 0) 30%);
+  transition:--l .25s ease,--r .25s ease,--b .25s ease;}
+#rearfx::after{content:"";position:absolute;inset:0;opacity:0;box-shadow:inset 0 0 140px 40px rgb(var(--rc) / .95),inset 0 0 0 4px rgb(var(--rc));}
+#rearfx.arrive::after{animation:rear-arrive .9s ease-out;}
+#rearfx.closing{animation:rear-pulse .6s ease-in-out infinite;}
+@keyframes rear-arrive{0%{opacity:0}12%{opacity:1}30%{opacity:.15}45%{opacity:.9}100%{opacity:0}}
+@keyframes rear-pulse{0%,100%{opacity:1}50%{opacity:.45}}
+@media (prefers-reduced-motion: reduce){#rearfx,#rearfx::after{animation:none!important;transition:none;}}
+
+/* AR: a brief "Centred" tag when the view is re-centred */
+#recenter{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);margin:0;padding:8px 14px;border-radius:999px;background:rgba(0,0,0,.6);
+  color:var(--hud);font:700 12px var(--mono);letter-spacing:.12em;text-transform:uppercase;pointer-events:none;opacity:0;z-index:6;}
+#recenter.show{animation:rec-show 1s ease-out;}
+@keyframes rec-show{0%{opacity:0;transform:translate(-50%,-50%) scale(.9);}15%{opacity:1;transform:translate(-50%,-50%) scale(1);}70%{opacity:1;}100%{opacity:0;}}

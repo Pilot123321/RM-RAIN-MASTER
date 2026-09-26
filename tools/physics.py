@@ -12,7 +12,8 @@ SIG = {
     "spray_emit": (None, [I] + [D] * 6), "spray_update": (None, [D, D]), "spray_clear": (None, []),
     "spray_height_q": (D, [D]), "spray_vt": (D, [D]), "spray_count": (I, []),
     "veh_state": (PD, []), "veh_curv": (PD, []), "veh_set_track": (None, [I, D]), "veh_reset": (None, []),
-    "veh_step": (None, [D, D, D, I, D, D]),
+    "veh_step": (None, [D, D, D, I, D, D]), "veh_set_water": (None, [D]),
+    "spray_emit_tyre": (None, [I] + [D] * 8),
 }
 for name, (res, args) in SIG.items():
     f = getattr(LIB, name); f.restype = res; f.argtypes = args
@@ -20,4 +21,4 @@ for name, (res, args) in SIG.items():
 # vehicle state layout, same order as the enum in physics/vehicle.c and VEH_FIELDS in game.html
 VEH_FIELDS = ["s", "lat", "psi", "vx", "vy", "r", "wf", "wr", "kf", "kr", "af", "ar", "FyfS", "FyrS", "ax", "ay",
               "thr", "brk", "delta", "gear", "cut", "rpm", "hitV", "latV", "v", "sliding", "beta",
-              "satF", "satR", "mz", "gripF", "gripR"]
+              "satF", "satR", "mz", "gripF", "gripR", "aqua", "rev"]

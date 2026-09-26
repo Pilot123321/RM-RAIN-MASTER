@@ -1,21 +1,20 @@
 <title>Look-Ahead Radar</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@400;700&family=Saira+Condensed:wght@600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@400;700&family=Saira+Condensed:wght@600;800&family=Titillium+Web:ital,wght@0,400;0,600;0,700;0,900;1,600;1,700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/game.css">
 
 <div class="wrap">
   <header class="mast">
     <div class="mast-text">
-      <p class="eyebrow">Driver HUD concept · wet Grand Prix · floodlit</p>
+      <p class="eyebrow">A driver-display study for racing in the wet</p>
       <h1>Look-Ahead <span>Radar</span></h1>
-      <p class="lede">Every F1 car already reports where it is. This HUD turns that into a navigation radar that sees around the next corners and through spray. Drive it yourself, race other cars wheel to wheel, drop a hazard behind a blind corner, or load your own circuit from a map.</p>
     </div>
     <dl class="keys" aria-label="Keyboard controls">
       <div><dt>W / ↑</dt><dd>Throttle</dd></div>
-      <div><dt>S / ↓ / Space</dt><dd>Brake</dd></div>
+      <div><dt>S / ↓ / Space</dt><dd>Brake · hold when stopped to reverse</dd></div>
       <div><dt>A D / ← →</dt><dd>Steer</dd></div>
-      <div><dt>X</dt><dd>Drop hazard (free drive)</dd></div>
+      <div><dt>X</dt><dd>Drop a hazard</dd></div>
       <div><dt>+ / −</dt><dd>Zoom radar</dd></div>
       <div><dt>C · N · Esc</dt><dd>Camera · HUD size · stop</dd></div>
     </dl>
@@ -27,6 +26,7 @@
     <div class="helmet"></div>
     <canvas id="drops" aria-hidden="true"></canvas>
     <div class="visorframe" aria-hidden="true"></div>
+    <div id="rearfx" aria-hidden="true"></div>
     <div id="combiner" aria-hidden="true"></div>
     <canvas id="hud"></canvas>
     <div id="visor" aria-hidden="true"></div>
@@ -53,11 +53,8 @@
     </div>
   </section>
 
+  <p class="figcap"><span>Onboard</span> From the cockpit, in the wet. The look-ahead display sits on the visor.</p>
   <section class="controls" id="controls">
-    <fieldset id="scenSet">
-      <legend class="sec-l">Scenario</legend>
-      <div class="scen-grid" id="scenGrid"></div>
-    </fieldset>
     <div class="opts" id="opts">
       <div class="opt"><span class="opt-l">Driver</span><div class="seg" role="group" aria-label="Driver"><button id="drvYou" aria-pressed="true">You drive</button><button id="drvModel" aria-pressed="false">Autopilot</button></div></div>
       <div class="opt"><span class="opt-l">Steering</span><div class="seg" role="group" aria-label="Steering"><button id="stAssist" aria-pressed="true">Lane assist</button><button id="stFull" aria-pressed="false">Full</button></div></div>
@@ -111,8 +108,12 @@
         <dl class="cstats"><div><dt>Lap</dt><dd id="cLen">—</dd></div><div><dt>Corners</dt><dd id="cCorners">—</dd></div><div><dt>Longest straight</dt><dd id="cStraight">—</dd></div></dl>
       </div>
       <div class="circ-info">
-        <div class="c-actions"><button class="btn primary" id="upBtn">Upload map</button><button class="btn" id="drawBtn">Draw circuit</button><button class="btn" id="defBtn">Default circuit</button></div>
-        <p class="dropzone" id="dropzone">Or drop an image of a circuit map here. Works best with a single coloured track line on a plain background.</p>
+        <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Drop a circuit screenshot here, or choose one">
+          <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M10 30c-4 0-6-3-6-6 0-5 5-7 9-5 1-6 6-9 11-9 7 0 11 6 11 11 5 0 8 3 8 7s-3 6-7 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M24 44V24m-7 7 7-7 7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <strong>Drop a circuit screenshot</strong>
+          <span>Drag it in from your desktop or the screenshot preview, or paste it with ⌘V. One coloured track line on a plain background works best.</span>
+        </div>
+        <div class="c-actions"><button class="btn" id="drawBtn">Draw circuit</button><button class="btn" id="defBtn">Default circuit</button></div>
         <input type="file" id="fileIn" accept="image/*" hidden>
       </div>
     </div>
@@ -121,6 +122,7 @@
 
 </div>
 
+<div class="dropall" id="dropAll" hidden aria-hidden="true"><div><strong>Drop to build the circuit</strong><span>The track line is traced from your screenshot</span></div></div>
 <div class="modal" id="builder" hidden role="dialog" aria-modal="true" aria-labelledby="bTitle">
   <div class="sheet">
     <div class="sheet-h"><h2 id="bTitle">Build a circuit</h2><button class="btn" id="bClose">Close</button></div>
@@ -128,7 +130,7 @@
     <div class="b-body">
       <div class="b-stage"><canvas id="bCanvas" width="780" height="520"></canvas><p class="b-hint" id="bHint"></p></div>
       <div class="b-side">
-        <div class="c-actions" id="bUpActions"><button class="btn primary" id="bChoose">Choose image</button><button class="btn" id="bSample">Use sample map</button></div>
+        <div class="c-actions" id="bUpActions"><button class="btn" id="bChoose">Browse…</button><button class="btn" id="bSample">Use sample map</button></div>
         <div class="c-actions" id="bDrawActions" hidden><button class="btn" id="bClear">Clear drawing</button></div>
         <label class="fld"><span class="opt-l">Name</span><input type="text" id="bName" value="My circuit" maxlength="40"></label>
         <label class="fld"><span class="opt-l">Lap length<output id="bKmOut">4.5 km</output></span><input type="range" id="bKm" min="15" max="70" value="45"></label>
@@ -412,16 +414,23 @@ function genTraffic(n){const r=mulberry(n*7+1),out=[];
     out.push({gap,lane:[-2.3,1.9,-0.8,2.4,0.6,-1.8][i%6]+(r()-0.5)*0.6,fac:0.86+r()*0.13});}
   return out;}
 
+function carFrom(g,s0,lap0,i){const T=typeof g==='number'?{gap:g,lane:0,fac:1}:g, s=wrapS(s0+T.gap);
+  return {lapc:lap0+Math.floor((s0+T.gap)/L),s,lat:clamp(sampleArr(LATRL,s)+T.lane,-(HW-1.2),HW-1.2),latV:0,v:sampleArr(VPROF,s)*T.fac,lane:T.lane,fac:T.fac,vis:true,closing:false,col:TCOL[i%TCOL.length],braking:0,followT:0,touch:false};}
 function makeWorld(key,opts){
   const sc=SCN[key], hz=sc.hazards();
   const s0=sc.free?SPOTS.freeStart:wrapS(hz[0].s-sc.startBack), tlist=sc.free?genTraffic(opts.traffic||12):sc.traffic;
   return {sc,opts:Object.assign({},opts),rain:opts.rain,t:0,done:false,losT:0,vis:400,alert:0,near:null,dNear:1e9,flagOn:false,
     stopT:0,impact:null,crash:null,result:null,touches:0,scrapes:0,events:[],
     player:(()=>{const v0=sampleArr(VPROF,s0)*(sc.free?0.8:1);return {lapc:0,s:s0,lat:sampleArr(LATRL,s0),latV:0,slideV:0,psi:0,steer:0,v:v0,vx:v0,vy:0,r:0,ax:0,ay:0,delta:0,braking:0,thr:0,brk:0,onWall:false};})(),
-    traffic:tlist.map((g,i)=>{const T=typeof g==='number'?{gap:g,lane:0,fac:1}:g, s=wrapS(s0+T.gap);
-      return {lapc:Math.floor((s0+T.gap)/L),s,lat:clamp(sampleArr(LATRL,s)+T.lane,-(HW-1.2),HW-1.2),latV:0,v:sampleArr(VPROF,s)*T.fac,lane:T.lane,fac:T.fac,vis:true,closing:false,col:TCOL[i%TCOL.length],braking:0,followT:0,touch:false};}),
+    traffic:tlist.map((g,i)=>carFrom(g,s0,0,i)),
     hazards:hz};
 }
+/* standing water on the track, mm: a film that grows with the rain, deeper toward the edges where the camber
+   drains it, thinner on the racing line the cars keep clearing, and puddles in patches where the surface dips */
+function waterDepth(s,lat,rain){if(rain<=0)return 0;
+  const edge=clamp((Math.abs(lat)-HW*0.5)/(HW*0.5),0,1),line=Math.exp(-((lat-sampleArr(LATRL,s))**2)/2);
+  const pud=Math.max(0,Math.sin(s*0.021+1.3)*Math.sin(s*0.0137-lat*0.4+0.7)-0.35)*2.2;
+  return rain*(0.4+1.6*rain)*(1+0.8*edge)*(1-0.35*line)+rain*rain*3.5*pud;}
 function vSafe(h,d){return Math.sqrt(h.vpass*h.vpass+2*A_PLAN*Math.max(0,d-h.halfLen-8));}
 function steerTo(c,target,dt){
   const maxLat=Math.min(6.5,0.6+c.v*0.12), want=clamp((target-c.lat)*2.0,-maxLat,maxLat);
@@ -440,7 +449,7 @@ const GEARS=[18.1,14.98,12.4,10.27,8.5,7.04,5.83,4.81], RW=0.36;
    radar.c    — 77 GHz link budget, detection, measurement noise, resolution, Kalman tracker
    spray.c    — tyre spray droplets in the car's wake (render buffers live in wasm memory)
    JavaScript keeps the driver model, the scene geometry and the drawing. */
-const VEH_FIELDS=['s','lat','psi','vx','vy','r','wf','wr','kf','kr','af','ar','FyfS','FyrS','ax','ay','thr','brk','delta','gear','cut','rpm','hitV','latV','v','sliding','beta','satF','satR','mz','gripF','gripR'];
+const VEH_FIELDS=['s','lat','psi','vx','vy','r','wf','wr','kf','kr','af','ar','FyfS','FyrS','ax','ay','thr','brk','delta','gear','cut','rpm','hitV','latV','v','sliding','beta','satF','satR','mz','gripF','gripR','aqua','rev'];
 const PHYS={ok:false,x:null};
 PHYS.ready=fetch('/physics.wasm').then(r=>{if(!r.ok)throw new Error('physics.wasm '+r.status);return r.arrayBuffer();}).then(b=>WebAssembly.instantiate(b,{})).then(({instance})=>{
   const x=instance.exports,buf=x.memory.buffer;if(x._initialize)x._initialize();PHYS.x=x;
@@ -455,16 +464,23 @@ PHYS.ready=fetch('/physics.wasm').then(r=>{if(!r.ok)throw new Error('physics.was
 function physTrack(){if(!PHYS.ok||!KC)return;PHYS.curv.set(KC.length>16384?KC.subarray(0,16384):KC);PHYS.x.veh_set_track(Math.min(N,16384),DS);}
 function driveDynamics(P,w,inp,dt,assist){
   const L=CAR.lf+CAR.lr, g=9.81, aids=w.opts.aids!==false, x=PHYS.x, V=PHYS.veh;
-  // aquaplaning in standing water at high speed, and wet painted kerbs
-  let mu=tyreMu(w)*(1-w.rain*0.3*clamp((P.vx-55)/30,0,1));
+  // wet painted kerbs; aquaplaning comes from the water depth, in physics/vehicle.c
+  let mu=tyreMu(w);x.veh_set_water(waterDepth(P.s,P.lat,w.rain));
   if(Math.abs(P.lat)>HW-1.1&&w.rain>0.3)mu*=0.8;
   if(P.wf==null){VEH_FIELDS.forEach((f,i)=>V[i]=P[f]||0);x.veh_reset();VEH_FIELDS.forEach((f,i)=>P[f]=V[i]);}
+  // reverse: hold brake at a standstill to select it; then the brake pedal drives backwards and gas brakes.
+  // Gas at a standstill selects first gear again.
+  const stopped=Math.abs(P.vx)<0.6&&Math.abs(P.vy)<0.6;
+  if(!P.rev){if(stopped&&inp.brake>0.5&&inp.throttle<0.1){P.revT=(P.revT||0)+dt;if(P.revT>0.35){P.rev=1;P.revT=0;}}else P.revT=0;}
+  else if(stopped&&inp.throttle>0.3&&inp.brake<0.1)P.rev=0;
+  const thrIn=P.rev?inp.brake:inp.throttle,brkIn=P.rev?inp.throttle:inp.brake;
   // driver inputs through actuator rates
-  P.thr+=clamp(inp.throttle-P.thr,-5*dt,3.2*dt); P.brk+=clamp(inp.brake-P.brk,-8*dt,7*dt); P.braking=P.brk>0.1?1:0;
+  P.thr+=clamp(thrIn-P.thr,-5*dt,3.2*dt); P.brk+=clamp(brkIn-P.brk,-8*dt,7*dt); P.braking=P.brk>0.1?1:0;
   P.steer+=clamp(inp.steer-P.steer,-5*dt,5*dt);
   // steering angle target at the wheels
   let dTarget;
-  if(assist){
+  if(P.rev) dTarget=P.steer*CAR.dmax*0.8;                        // reversing: plain steering, no lane assist
+  else if(assist){
     const edge=HW-1.15, Ld=clamp(7+0.42*P.vx,8,42);
     const tl=P.steer<0?lerp(sampleArr(LATRL,P.s+Ld),-edge,-P.steer):lerp(sampleArr(LATRL,P.s+Ld),edge,P.steer);
     const me=worldPos(P.s,P.lat), tg=worldPos(P.s+Ld,tl), hd=headingAt(P.s,P.psi);
@@ -476,7 +492,7 @@ function driveDynamics(P,w,inp,dt,assist){
     dTarget=P.steer*clamp(L*ayMax/(vv*vv)+0.1,0.05,CAR.dmax);   // lock limited to what the front tyres can use
   } else dTarget=P.steer*CAR.dmax/(1+P.vx*P.vx/2500);             // raw lock for countersteering a drift
   const beta=Math.atan2(P.vy,Math.max(Math.abs(P.vx),3));
-  if(aids&&P.vx>5&&Math.abs(beta)>0.035) dTarget+=0.7*(beta-Math.sign(beta)*0.035);   // stability control
+  if(aids&&!P.rev&&P.vx>5&&Math.abs(beta)>0.035) dTarget+=0.7*(beta-Math.sign(beta)*0.035);   // stability control
   dTarget=clamp(dTarget,-CAR.dmax,CAR.dmax);
   // physics: physics/vehicle.c
   VEH_FIELDS.forEach((f,i)=>V[i]=P[f]||0);
@@ -502,7 +518,7 @@ function step(w,dt,inp){
   let spray=0,wake=0;
   for(const c of w.traffic){const d=dSigned(P.s,c.s);if(d<=1||d>70)continue;const half=1.1+d*0.05,ov=clamp(1-(Math.abs(c.lat-P.lat)-half*0.5)/half,0,1);if(!ov)continue;
     spray+=ov*clamp(c.v/45,0,1.3)*Math.exp(-d/22);wake+=ov*clamp(c.v/50,0,1.2)*Math.exp(-d/25);}
-  spray=clamp(spray*w.rain*w.rain*1.7,0,1);
+  spray=clamp(spray*w.rain*w.rain*1.7+0.08*clamp(P.v/70,0,1.2)*waterDepth(P.s,P.lat,w.rain)/2,0,1);   // + your own front wheels
   w.spray=w.spray==null?spray:w.spray+(spray-w.spray)*Math.min(1,dt*6);
   P.aeroK=1-clamp(wake,0,1)*0.22;
   // the nearest car behind you inside 50 m: distance, which side it is coming, how fast it is closing
@@ -933,6 +949,11 @@ const _v=new THREE.Vector3();
 // count droplets from a point on a car (local offset), thrown into the wake of a car moving at vel
 function emitSpray(obj,off,vel,count){if(!PHYS.ok||count<=0)return;
   _v.set(off[0],off[1],off[2]);obj.localToWorld(_v);PHYS.x.spray_emit(count,_v.x,_v.y,_v.z,vel.x,vel.z,obj.position.y);}
+// a front tyre rolling through the water under it: tread pick-up, a sideways bow wave and mist (physics/spray.c)
+const _o=new THREE.Vector3();
+function emitTyreSpray(obj,side,vel,count){if(!PHYS.ok||count<=0)return;
+  _v.set(side*0.8,0.3,-1.95);obj.localToWorld(_v);_o.set(side,0,0).transformDirection(obj.matrixWorld);
+  PHYS.x.spray_emit_tyre(count,_v.x,_v.y,_v.z,vel.x,vel.z,_o.x,_o.z,obj.position.y);}
 function updateSpray(dt,rain){if(!PHYS.ok||dt<=0)return;PHYS.x.spray_update(dt,rain);
   for(const k of ['position','aSize','aAlpha'])spG.attributes[k].needsUpdate=true;}
 
@@ -1323,7 +1344,7 @@ function drawScreen(c,w,t,dt){
   if(w.opts.hud!==false){
     const R=navRegion(u),pd=22*u;c.save();c.translate(R.x+R.w/2,R.y+R.h/2);c.scale(R.w/2+pd,R.h/2+pd);
     const g=c.createRadialGradient(0,0,0,0,0,1);g.addColorStop(0,'rgba(3,9,13,.5)');g.addColorStop(0.7,'rgba(3,9,13,.34)');g.addColorStop(1,'rgba(3,9,13,0)');c.fillStyle=g;c.fillRect(-1,-1,2,2);c.restore();
-    drawConformal(c,w,u,A.proj,true);drawNav(c,w,t,dt,u);drawBehind(c,w,u,cw/2,ch*0.05);
+    drawConformal(c,w,u,A.proj,true);drawNav(c,w,t,dt,u);
     const th=clamp(ch*0.09,40,90);c.save();c.globalAlpha=0.95;drawTracker(c,w,cw*0.05,ch*0.83-th,Math.min(cw*0.56,cw-R.w-cw*0.1),th,u,RM?true:((t*3)%1)<0.6);c.restore();}
   drawPedals(c,w,u);
 }
@@ -1338,9 +1359,9 @@ function drawNav(c,w,t,dt,u,Rin){
   // eyebox corner ticks
   c.strokeStyle=HC.dim;c.lineWidth=1.2*u;const tk=12*u;
   for(const [x,y,sx,sy] of [[R.x,R.y,1,1],[R.x+R.w,R.y,-1,1],[R.x,R.y+R.h,1,-1],[R.x+R.w,R.y+R.h,-1,-1]]){c.beginPath();c.moveTo(x,y+sy*tk);c.lineTo(x,y);c.lineTo(x+sx*tk,y);c.stroke();}
-  const hh=drawHeader(c,w,R,u,flash,hi), col=hi.col;
+  const hh=0, col=hi.col;   // no distance / turn header and no lane arrows: the ribbon uses the whole panel
   // --- lane guidance
-  const showLanes=hi.kind==='haz'||(hi.kind==='corner'&&hi.dist<220), lh=showLanes?Math.round(R.h*0.11):0;
+  const showLanes=false, lh=0;
   if(showLanes){const lanes=[-4,0,4],aw=lh*0.95;
     lanes.forEach((ll,k)=>{let ok=true,bend=0;if(hi.kind==='haz')ok=Math.abs(ll-hi.h.lat)>hi.h.halfW+2.1;else bend=hi.corner.sg;
       const ax=R.x+14*u+k*aw*1.15+aw/2, ay=R.y+hh+lh*0.56;
@@ -1424,20 +1445,6 @@ function drawNav(c,w,t,dt,u,Rin){
   c.textBaseline='alphabetic';
   c.restore();
 }
-// car behind you inside 50 m: a mirror tag with the side it is coming, the gap and the closing speed
-function drawBehind(c,w,u,cx,y){const b=w.behind;if(!b)return;
-  const cl=b.cl*3.6,col=b.d<12&&cl>5?THREAT_COL.red:(cl>8||b.d<20)?THREAT_COL.amber:HC.pri;
-  const txt=(b.side<0?'CAR BEHIND · LEFT ':b.side>0?'CAR BEHIND · RIGHT ':'CAR BEHIND ')+Math.round(b.d)+' M',sub=cl>1?`CLOSING +${Math.round(cl)} KM/H`:cl<-1?`DROPPING BACK ${Math.round(-cl)} KM/H`:'SAME PACE';
-  c.save();c.font=`700 ${12*u}px "B612 Mono", monospace`;const tw=c.measureText(txt).width,bw=tw+60*u,bh=36*u,x0=cx-bw/2;
-  c.fillStyle='rgba(3,9,13,.6)';rr(c,x0,y,bw,bh,6*u);c.fill();c.strokeStyle=col;c.lineWidth=1.5*u;c.stroke();
-  // gap bar: fills as the car gets closer
-  c.fillStyle=col;c.globalAlpha=0.8;c.fillRect(x0+6*u,y+bh-5*u,(bw-12*u)*clamp((50-b.d)/48,0,1),2.5*u);c.globalAlpha=1;
-  // chevron on the side the car is coming (down-pointing when it is straight behind)
-  const ax=b.side>0?x0+bw-17*u:x0+17*u,ay=y+bh/2-2*u,k=7*u;c.beginPath();
-  if(b.side<0){c.moveTo(ax-k,ay);c.lineTo(ax+k*0.6,ay-k);c.lineTo(ax+k*0.6,ay+k);}else if(b.side>0){c.moveTo(ax+k,ay);c.lineTo(ax-k*0.6,ay-k);c.lineTo(ax-k*0.6,ay+k);}
-  else{c.moveTo(ax,ay+k);c.lineTo(ax-k,ay-k*0.6);c.lineTo(ax+k,ay-k*0.6);}c.closePath();c.fill();
-  c.textAlign='center';c.textBaseline='alphabetic';c.fillText(txt,cx+(b.side>0?-6*u:6*u),y+16*u);
-  c.font=`${9*u}px "B612 Mono", monospace`;c.fillStyle=HC.mid;c.fillText(sub,cx+(b.side>0?-6*u:6*u),y+28*u);c.restore();}
 function drawPedals(c,w,u){
   const P=w.player, x=cw/2, y=ch*0.93, showSpeed=!w.opts.hud, drive=w.opts.driver==='drive';
   if(!showSpeed&&!drive)return;
@@ -1448,7 +1455,7 @@ function drawPedals(c,w,u){
     const st=P.steer||0;c.strokeStyle=HC.dim;c.lineWidth=1.6*u;c.beginPath();c.arc(x,y-bh+6*u,22*u,-Math.PI*0.8,-Math.PI*0.2);c.stroke();
     const a=-Math.PI/2+st*Math.PI*0.3;c.fillStyle=HC.pri;c.beginPath();c.arc(x+Math.cos(a)*22*u,y-bh+6*u+Math.sin(a)*22*u,3.2*u,0,TAU);c.fill();
     if(P.beta!=null&&Math.abs(P.beta)>0.1&&P.v>5){c.fillStyle=HC.amb;c.textAlign='center';c.font=`700 ${13*u}px "B612 Mono", monospace`;c.fillText('DRIFT '+Math.round(Math.abs(P.beta)*57.3)+'°',x,y-bh-62*u);}
-    if(P.gear!=null){c.fillStyle=HC.pri;c.textAlign='center';c.font=`700 ${22*u}px "B612 Mono", monospace`;c.fillText(String(P.gear+1),x,y-bh-24*u);
+    if(P.gear!=null){c.fillStyle=HC.pri;c.textAlign='center';c.font=`700 ${22*u}px "B612 Mono", monospace`;c.fillText(P.rev?'R':String(P.gear+1),x,y-bh-24*u);
       const f=clamp((P.rpm-9000)/2800,0,1),lit=Math.round(f*15),blink=P.rpm>11600&&((performance.now()/70)|0)%2;
       for(let i=0;i<15;i++){const lx=x+(i-7)*7.5*u,ly=y-bh-48*u,col=i<5?'#35D98A':i<10?'#FF4B3A':'#4A9CFF';
         c.fillStyle=i<lit&&!blink?col:'rgba(196,248,255,.12)';c.beginPath();c.arc(lx,ly,2.6*u,0,TAU);c.fill();}}}
@@ -1464,7 +1471,6 @@ function drawHUD(w,t,dt){
     const th=clamp(ch*0.09,40,90);hc.save();hc.globalAlpha=0.95;drawTracker(hc,w,cw*0.05,ch*0.83-th,Math.min(cw*0.56,cw-navRegion(u).w-cw*0.1),th,u,RM?true:((t*3)%1)<0.6);hc.restore();} else NAV.rects=null;
   const cb=$('combiner');cb.hidden=!o.hud;
   if(o.hud){const R=navRegion(u),pd=22*u,st=cb.style;st.left=(R.x-pd)+'px';st.top=(R.y-pd)+'px';st.width=(R.w+2*pd)+'px';st.height=(R.h+2*pd)+'px';}
-  if(o.hud)drawBehind(hc,w,u,cw/2,ch*0.05);
   drawPedals(hc,w,u);
 }
 
@@ -1494,39 +1500,48 @@ const LOG=[];
 function optsFromUI(){return {hud:ui.hud,visor:ui.visor,driver:ui.driver,steer:ui.steer,rain:ui.rain,traffic:ui.traffic,aids:ui.aids};}
 function resetWorld(){world=makeWorld(ui.scn,optsFromUI());buildDynamic(world);paintSky(ui.rain);rainInit=false;camInit=false;NAV.cur=160;syncScene(world,0,0);renderIntro();}
 function renderScenCards(){
+  if(!$('scenGrid'))return;   // the scenario picker is not on the page; runs are free drive
   $('scenGrid').innerHTML=SCN_ORDER.map(k=>{const s=SCN[k];return `<label class="scen-card"><input type="radio" name="scn" value="${k}" ${k===ui.scn?'checked':''}><span class="sc-ref">${s.ref}</span><span class="sc-title">${s.title}</span><span class="sc-blurb">${s.blurb()}</span></label>`;}).join('');
   document.querySelectorAll('input[name=scn]').forEach(r=>r.addEventListener('change',()=>{if(running)return;ui.scn=r.value;ui.rain=SCN[r.value].rain;$('rain').value=Math.round(ui.rain*100);syncControls();resetWorld();}));
 }
 function seg(onId,offId,key,onVal,offVal){
-  $(onId).addEventListener('click',()=>{if(running)return;ui[key]=onVal;syncControls();applyLive();});
-  $(offId).addEventListener('click',()=>{if(running)return;ui[key]=offVal;syncControls();applyLive();});
+  $(onId).addEventListener('click',()=>{ui[key]=onVal;syncControls();applyLive();});
+  $(offId).addEventListener('click',()=>{ui[key]=offVal;syncControls();applyLive();});
 }
 seg('hudOn','hudOff','hud',true,false); seg('aidOn','aidOff','aids',true,false); seg('visOn','visOff','visor',true,false); seg('drvYou','drvModel','driver','drive','model'); seg('stAssist','stFull','steer','assist','full');
-[6,12,20].forEach(n=>$('tr'+n).addEventListener('click',()=>{if(running)return;ui.traffic=n;syncControls();resetWorld();}));
+[6,12,20].forEach(n=>$('tr'+n).addEventListener('click',()=>{ui.traffic=n;syncControls();if(running)liveTraffic();else resetWorld();}));
 $('camCock').addEventListener('click',()=>{ui.cam='cockpit';syncControls();});
 $('camChase').addEventListener('click',()=>{ui.cam='chase';syncControls();});
 $('sndOn').addEventListener('click',()=>{ui.sound=true;audioStart();syncControls();});
 $('sndOff').addEventListener('click',()=>{ui.sound=false;syncControls();});
-$('rain').addEventListener('input',e=>{if(running)return;ui.rain=e.target.value/100;syncControls();world.rain=ui.rain;world.opts.rain=ui.rain;paintSky(ui.rain);renderIntro();});
-function applyLive(){if(!running){world.opts=optsFromUI();renderIntro();}}
+$('rain').addEventListener('input',e=>{ui.rain=e.target.value/100;syncControls();world.rain=ui.rain;world.opts.rain=ui.rain;paintSky(ui.rain);if(!running)renderIntro();});
+// settings apply straight away, also in the middle of a run
+function applyLive(){
+  if(!running){world.opts=optsFromUI();renderIntro();return;}
+  const w=world,was=w.opts.driver;Object.assign(w.opts,optsFromUI());
+  if(was==='model'&&w.opts.driver==='drive'){const P=w.player;Object.assign(P,{vx:P.v,vy:0,r:0,psi:0,delta:0,steer:0,wf:null,rev:0});}
+  $('touch').hidden=!(w.opts.driver==='drive'&&(touchUsed||matchMedia('(pointer: coarse)').matches));}
+// a new field of cars around you when the traffic setting changes mid-run
+function liveTraffic(){const w=world,P=w.player;
+  w.traffic=genTraffic(ui.traffic).map((T,i)=>carFrom(T,P.s,P.lapc||0,i));w.opts.traffic=ui.traffic;buildDynamic(w);}
 function syncControls(){
   const set=(id,v)=>$(id).setAttribute('aria-pressed',v?'true':'false');
-  set('aidOn',ui.aids);set('aidOff',!ui.aids);$('aidOn').disabled=$('aidOff').disabled=running||ui.driver!=='drive';
+  set('aidOn',ui.aids);set('aidOff',!ui.aids);$('aidOn').disabled=$('aidOff').disabled=ui.driver!=='drive';
   set('hudOn',ui.hud);set('hudOff',!ui.hud);set('visOn',ui.visor);set('visOff',!ui.visor);set('drvYou',ui.driver==='drive');set('drvModel',ui.driver==='model');
   set('stAssist',ui.steer==='assist');set('stFull',ui.steer==='full');
-  [6,12,20].forEach(n=>{set('tr'+n,ui.traffic===n);$('tr'+n).disabled=running;});
+  [6,12,20].forEach(n=>set('tr'+n,ui.traffic===n));
   set('camCock',ui.cam==='cockpit');set('camChase',ui.cam==='chase');set('sndOn',ui.sound);set('sndOff',!ui.sound);
   $('rainOut').textContent=Math.round(ui.rain*100)+'%';
-  $('scenSet').classList.toggle('locked',running);
-  ['hudOn','hudOff','visOn','visOff','drvYou','drvModel','stAssist','stFull'].forEach(id=>$(id).disabled=running);$('rain').disabled=running;
-  $('stAssist').disabled=$('stFull').disabled=running||ui.driver!=='drive';
+  if($('scenSet'))$('scenSet').classList.toggle('locked',running);
+  $('stAssist').disabled=$('stFull').disabled=ui.driver!=='drive';
   $('runBtn').textContent=running?'Stop run':'Start run';
-  ['upBtn','drawBtn','defBtn'].forEach(id=>$(id).disabled=running);
+  ['drawBtn','defBtn'].forEach(id=>$(id).disabled=running);
 }
 function metaLine(o){return `Radar ${o.hud?'on':'off'} · Visor ${o.visor?'on':'off'} · ${o.driver==='model'?'Autopilot':'You drive'+(o.steer==='full'?' (full steering)':'')} · Rain ${Math.round(o.rain*100)}%`;}
 function renderIntro(){const s=SCN[ui.scn];$('iRef').textContent=s.ref+' · '+TRACK_NAME;$('iTitle').textContent=s.title;$('iBlurb').textContent=s.blurb();
   const how=ui.driver==='drive'?(ui.steer==='assist'?'<kbd>W</kbd> gas · <kbd>S</kbd>/<kbd>Space</kbd> brake · hold <kbd>A</kbd>/<kbd>D</kbd> to move across the track, let go to rejoin the racing line.':'<kbd>W</kbd> gas · <kbd>S</kbd> brake · <kbd>A</kbd>/<kbd>D</kbd> steer. Too fast in a corner and you run wide into the wall.'):'Autopilot drives. Watch how early it reacts.';
-  $('iMeta').innerHTML=metaLine(optsFromUI())+'<br>'+how+(s.free?' <kbd>X</kbd> drops a hazard.':'');}
+  const howRev=ui.driver==='drive'?' Stopped? Hold <kbd>S</kbd> to reverse, <kbd>W</kbd> to go forward again.':'';
+  $('iMeta').innerHTML=metaLine(optsFromUI())+'<br>'+how+howRev+(s.free?' <kbd>X</kbd> drops a hazard.':'');}
 function startRun(){
   if(!PHYS.ok){if(PHYS.err)toast('<b class="info">Physics core did not load</b>Run <code>npm run build:physics</code> and reload.');else PHYS.ready.then(()=>{if(PHYS.ok&&!running)startRun();});return;}
   if(ui.sound)audioStart();
@@ -1607,7 +1622,7 @@ function readInput(){
   let thr=Math.max(K.up,TOUCH.gas), brk=Math.max(K.down,TOUCH.brake), st=(K.right+TOUCH.right)-(K.left+TOUCH.left);
   try{const gps=navigator.getGamepads?navigator.getGamepads():[];for(const gp of gps){if(!gp)continue;const ax=gp.axes[0]||0;if(Math.abs(ax)>0.08)st+=ax;
     if(gp.buttons[7])thr=Math.max(thr,gp.buttons[7].value);if(gp.buttons[6])brk=Math.max(brk,gp.buttons[6].value);if(gp.buttons[0]&&gp.buttons[0].pressed)thr=1;if(gp.buttons[1]&&gp.buttons[1].pressed)brk=1;break;}}catch(e){}
-  if(REMOTE.phones>0&&performance.now()-REMOTE.t<500){st+=REMOTE.steer;thr=Math.max(thr,REMOTE.gas);brk=Math.max(brk,REMOTE.brake);}
+  const pw=activeWheel();if(REMOTE.phones>0&&pw){st+=pw.steer;thr=Math.max(thr,pw.gas);brk=Math.max(brk,pw.brake);}
   return {throttle:clamp(thr,0,1),brake:clamp(brk,0,1),steer:clamp(st,-1,1)};
 }
 
@@ -1636,20 +1651,38 @@ function phoneFrame(w,t,dt,now){
     drive?clamp(((P.satR||0)-0.95)*2.5,0,1):0,
     drive?clamp((-Math.min(P.kf||0,P.kr||0)-0.1)*3,0,1):0,
     drive?clamp(((P.kr||0)-0.12)*3,0,1):0,
-    w.spray||0, w.rain*clamp((P.v-55)/30,0,1)].map(r2);
+    w.spray||0, drive?(P.aqua||0):0].map(r2);
   remoteSend({t:'w',tm:r2(t),dr:drive?1:0,hd:w.opts.hud?1:0,bh:w.behind?[r2(w.behind.d),w.behind.side,r2(w.behind.cl)]:null,scr:[Math.round(cw),Math.round(ch)],sp:r2(w.spray||0),rd,ffb,
-    p:[r2(P.s),r2(P.lat),r4(P.psi||0),r2(P.latV||0),r2(P.slideV||0),r2(P.v),r2(P.vx==null?P.v:P.vx),P.lapc||0,r2(P.brk||0),r2(P.thr||0),P.gear==null?-1:P.gear,Math.round(P.rpm||0),r4(P.beta||0),r4(P.steer||0)],
+    p:[r2(P.s),r2(P.lat),r4(P.psi||0),r2(P.latV||0),r2(P.slideV||0),r2(P.v),r2(P.vx==null?P.v:P.vx),P.lapc||0,r2(P.brk||0),r2(P.thr||0),P.rev?-2:P.gear==null?-1:P.gear,Math.round(P.rpm||0),r4(P.beta||0),r4(P.steer||0)],
     tr:w.traffic.map(c=>[r2(c.s),r2(c.lat),r2(c.latV),r2(c.v),c.vis?1:0,c.closing?1:0,c.lapc||0]),
     hz:w.hazards.map(h=>[h.type,r2(h.s),r2(h.lat),r2(h.yaw||0),h.halfLen,h.halfW,h.vis?1:0,h.gone?1:0,r2(h.avoid),h.vpass,h.label]),
     a:w.alert,ni:w.near?w.hazards.indexOf(w.near):-1,dn:r2(w.dNear),vis:Math.round(w.vis),fo:w.flagOn?1:0,fl:w.sc.flag||'',z:r4(NAV.zoom)});
 }
+// Several phones can be linked. Each has an id and a role: a wheel phone drives; a phone in AR is a viewer that
+// shows what the driver sees and is never read for input. Only the freshest wheel phone steers.
+REMOTE.dev=new Map();
+function phoneDev(id){id=id||'phone';let d=REMOTE.dev.get(id);if(!d){d={id,ar:false,steer:0,gas:0,brake:0,t:0};REMOTE.dev.set(id,d);}return d;}
+function activeWheel(){const now=performance.now();let b=null;for(const d of REMOTE.dev.values())if(!d.ar&&now-d.t<500&&(!b||d.t>b.t))b=d;return b;}
+function phoneRoles(){let v=0;for(const d of REMOTE.dev.values())if(d.ar)v++;
+  const wheels=Math.max(0,REMOTE.phones-v),was=REMOTE.viewers||0;REMOTE.viewers=v;REMOTE.wheels=wheels;
+  phoneAR(v>0&&wheels===0);
+  if(v>was&&wheels>0)toast('<b class="info">AR viewer linked</b>The wheel phone drives; the viewer shows the driver\'s view.');
+  remotePanel();}
+// with only viewers linked, the autopilot drives (a passenger view of what the driver would see). As soon as a
+// wheel phone is linked, or AR is switched off, the car goes back to the mode chosen before.
+function phoneAR(on){if(!!REMOTE.ar===on)return;REMOTE.ar=on;
+  if(on){REMOTE.prevDriver=ui.driver;ui.driver='model';}else ui.driver=REMOTE.prevDriver||ui.driver;
+  const w=world;if(w&&running){const was=w.opts.driver;w.opts.driver=ui.driver;
+    if(was==='model'&&ui.driver==='drive'){const P=w.player;Object.assign(P,{vx:P.v,vy:0,r:0,psi:0,delta:0,steer:0,wf:null});}}
+  syncControls();applyLive();
+  toast(on?'<b class="info">Phone AR · autopilot driving</b>The phone shows what the driver would see. Link a second phone as the wheel, or turn AR off, to drive.':`<b class="info">Phone AR off</b>${ui.driver==='drive'?'You are driving again.':'Autopilot keeps driving.'}`);}
 function remoteSend(o){const ws=REMOTE.ws;if(ws&&ws.readyState===1)ws.send(JSON.stringify(o));}
 function remotePanel(){
   if(!REMOTE.live)return;
-  const ok=REMOTE.phones>0;const st=$('phStatus');st.classList.toggle('ok',ok);
-  const fresh=performance.now()-REMOTE.t<600;
-  st.textContent=!ok?'Waiting for a phone':fresh?`Phone linked · ${REMOTE.rate||0} inputs/s`:'Phone linked but sending nothing. Reload the wheel page and keep it in front';
-  st.classList.toggle('ok',ok&&fresh);
+  const n=REMOTE.phones,ok=n>0,st=$('phStatus'),v=REMOTE.viewers||0,wh=Math.max(0,n-v);
+  const fresh=performance.now()-REMOTE.t<600, who=[wh?`${wh} wheel`:'',v?`${v} AR view`:''].filter(Boolean).join(' + ');
+  st.textContent=!ok?'Waiting for a phone':!wh?`${who} · autopilot driving`:fresh?`${n>1?n+' phones':'Phone'} linked · ${who} · ${REMOTE.rate||0} inputs/s`:'Wheel phone linked but sending nothing. Reload the wheel page and keep it in front';
+  st.classList.toggle('ok',ok&&(fresh||!wh));
 }
 async function remoteInit(){
   let info;try{const r=await fetch('/info',{cache:'no-store'});if(!r.ok)return;info=await r.json();}catch(e){return;}
@@ -1661,17 +1694,20 @@ async function remoteInit(){
   const connect=()=>{const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=game');REMOTE.ws=ws;
     ws.onmessage=e=>{let m;try{m=JSON.parse(e.data);}catch(_){return;}
       if(m.t==='hello'){sendTrack();}
-      else if(m.t==='in'){REMOTE.steer=+m.s||0;REMOTE.gas=+m.g||0;REMOTE.brake=+m.b||0;REMOTE.t=performance.now();REMOTE.n=(REMOTE.n||0)+1;}
-      else if(m.t==='phones'){const was=REMOTE.phones;REMOTE.phones=m.n;remotePanel();
+      else if(m.t==='in'){const d=phoneDev(m.id);d.steer=+m.s||0;d.gas=+m.g||0;d.brake=+m.b||0;d.t=performance.now();
+        if(!d.ar){REMOTE.steer=d.steer;REMOTE.gas=d.gas;REMOTE.brake=d.brake;REMOTE.t=d.t;REMOTE.n=(REMOTE.n||0)+1;}}
+      else if(m.t==='bye'){REMOTE.dev.delete(m.id);phoneRoles();}
+      else if(m.t==='phones'){const was=REMOTE.phones;REMOTE.phones=m.n;
+        if(m.ids)for(const id of [...REMOTE.dev.keys()])if(!m.ids.includes(id))REMOTE.dev.delete(id);phoneRoles();
         if(m.n>was)sendTrack();
         if(m.n>0&&was===0){if(!running){ui.driver='drive';ui.steer='full';syncControls();applyLive();}toast('<b class="info">Phone wheel linked</b>Full steering: tilt to turn the wheels. Traction and stability control are on.');}
-        if(m.n===0&&was>0)toast('<b class="info">Phone wheel disconnected</b>Keyboard controls still work.');}
-      else if(m.t==='cmd'){if(m.c==='start'&&!running)startRun();else if(m.c==='stop'&&running)stopRun();else if(m.c==='drop')dropHazard();else if(m.c==='cam'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}}};
+        if(m.n===0&&was>0){toast('<b class="info">Phone wheel disconnected</b>Keyboard controls still work.');}}
+      else if(m.t==='cmd'){if(m.c==='start'&&!running)startRun();else if(m.c==='stop'&&running)stopRun();else if(m.c==='drop')dropHazard();else if(m.c==='ar'){phoneDev(m.id).ar=!!m.on;phoneRoles();}else if(m.c==='cam'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}}};
     ws.onclose=()=>{REMOTE.phones=0;remotePanel();setTimeout(connect,1000);};};
   connect();
   setInterval(()=>{REMOTE.rate=(REMOTE.n||0);REMOTE.n=0;remotePanel();},1000);
   setInterval(()=>{const w=world;if(!w||!REMOTE.phones)return;const P=w.player,nh=w.near&&w.dNear<RANGE&&w.opts.hud?w.near:null;
-    remoteSend({t:'st',a:w.alert,k:Math.round(P.v*3.6),r:running&&!w.done,w:!!P.onWall,h:nh?nh.label:'',d:nh?Math.round(w.dNear):0});
+    remoteSend({t:'st',ap:REMOTE.ar?1:0,wh:REMOTE.wheels||0,a:w.alert,k:Math.round(P.v*3.6),r:running&&!w.done,w:!!P.onWall,h:nh?nh.label:'',d:nh?Math.round(w.dNear):0});
     const deg=REMOTE.steer*45;$('mSteerV').textContent=(deg>0?'R ':deg<0?'L ':'')+Math.abs(Math.round(REMOTE.steer*100))+'%';
     const f=$('mSteer').querySelector('.fill'),v=REMOTE.steer;f.style.left=(v<0?50+v*50:50)+'%';f.style.width=Math.abs(v)*50+'%';
     $('mGas').querySelector('.fill').style.width=REMOTE.gas*100+'%';$('mBrake').querySelector('.fill').style.width=REMOTE.brake*100+'%';},80);
@@ -1698,7 +1734,6 @@ function drawMini(){
   c.strokeStyle='rgba(196,248,255,.5)';c.lineWidth=2;c.beginPath();c.moveTo(a0[0],a0[1]);c.lineTo(a1[0],a1[1]);c.stroke();c.fillStyle='rgba(196,248,255,.5)';c.beginPath();c.moveTo(a1[0]+Math.cos(ang)*9,a1[1]+Math.sin(ang)*9);c.lineTo(a1[0]+Math.cos(ang+2.4)*8,a1[1]+Math.sin(ang+2.4)*8);c.lineTo(a1[0]+Math.cos(ang-2.4)*8,a1[1]+Math.sin(ang-2.4)*8);c.fill();
   // where each scenario's hazard is
   c.font='700 10px "B612 Mono", monospace';
-  [[SPOTS.blind,'BLIND CORNER'],[SPOTS.marsh,'CREST'],[SPOTS.rec,'RECOVERY']].forEach(([sp,lab])=>{const p=worldPos(sp,WALL+18),q=T(p.x,p.z);c.fillStyle='rgba(255,194,71,.45)';c.fillText(lab,q[0],q[1]);});
   MINI.bg=bg;
   $('cName').textContent=TRACK_NAME;$('cLen').textContent=(L/1000).toFixed(2)+' km';$('cCorners').textContent=CORNERS.length;
   $('cStraight').textContent=Math.round(SPOTS.crestStraight.len)+' m';
@@ -1750,7 +1785,7 @@ function redrawBuilder(){
   bx.fillStyle='#F1F0EA';bx.fillRect(0,0,BW,BH);
   if(B.mode==='upload'){
     if(B.img){const F=fitRect(B.img.width,B.img.height);bx.drawImage(B.img,F.x,F.y,B.img.width*F.s,B.img.height*F.s);bx.fillStyle='rgba(241,240,234,.35)';bx.fillRect(0,0,BW,BH);}
-    else{bx.fillStyle='#8B8F93';bx.font='600 18px "B612", sans-serif';bx.textAlign='center';bx.fillText('Choose an image, drop one here, or use the sample map',BW/2,BH/2);}
+    else{bx.fillStyle='#8B8F93';bx.font='600 18px "B612", sans-serif';bx.textAlign='center';bx.fillText('Drop a screenshot here, or paste it with ⌘V',BW/2,BH/2);}
   } else {
     bx.strokeStyle='#E2E1D9';bx.lineWidth=1;for(let x=0;x<BW;x+=40){bx.beginPath();bx.moveTo(x,0);bx.lineTo(x,BH);bx.stroke();}for(let y=0;y<BH;y+=40){bx.beginPath();bx.moveTo(0,y);bx.lineTo(BW,y);bx.stroke();}
     if(B.drawing&&B.draw.length>1){bx.strokeStyle='#2B3542';bx.lineWidth=5;bx.lineJoin='round';bx.lineCap='round';bx.beginPath();B.draw.forEach((p,k)=>k?bx.lineTo(p[0],p[1]):bx.moveTo(p[0],p[1]));bx.stroke();}
@@ -1766,7 +1801,7 @@ function redrawBuilder(){
 function loadFile(file){
   if(!file||!/^image\//.test(file.type)){status('That is not an image. Use a PNG, JPG or WebP of a circuit map.','err');return;}
   const url=URL.createObjectURL(file),im=new Image();
-  im.onload=()=>{URL.revokeObjectURL(url);B.img=im;B.pick=null;B.rev=false;$('bName').value=file.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').slice(0,40)||'My circuit';prepProc();detect();};
+  im.onload=()=>{URL.revokeObjectURL(url);B.img=im;B.pick=null;B.rev=false;const nm=file.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim();$('bName').value=!nm||/^(screen ?shot|image|clipboard|스크린샷|화면)/i.test(nm)?'My circuit':nm.slice(0,40);prepProc();detect();};
   im.onerror=()=>{URL.revokeObjectURL(url);status('That image could not be read. Try a PNG or JPG.','err');};
   im.src=url;
 }
@@ -1857,7 +1892,6 @@ function sampleMap(){
   c.fillStyle='#1B1E22';c.font='700 22px sans-serif';c.fillText('Harbour Street Circuit',30,40);
   return cv;
 }
-$('upBtn').addEventListener('click',()=>{openBuilder('upload');$('fileIn').click();});
 $('drawBtn').addEventListener('click',()=>{B.loop=null;B.draw=[];openBuilder('draw');status('');});
 $('defBtn').addEventListener('click',()=>applyTrack(defaultLoop(),'Grand Prix circuit'));
 $('bChoose').addEventListener('click',()=>$('fileIn').click());
@@ -1893,11 +1927,19 @@ const endDraw=()=>{if(!B.drawing)return;B.drawing=false;
   else{B.loop=B.draw.slice();status('Lap drawn. It closes from where you let go back to the start.','ok');}
   syncBuilder();redrawBuilder();};
 bc.addEventListener('pointerup',endDraw);bc.addEventListener('pointercancel',endDraw);
-for(const el of [bc,$('dropzone')]){
-  el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('over');});
-  el.addEventListener('dragleave',()=>el.classList.remove('over'));
-  el.addEventListener('drop',e=>{e.preventDefault();el.classList.remove('over');const f=e.dataTransfer.files&&e.dataTransfer.files[0];if(f){if($('builder').hidden)openBuilder('upload');B.mode='upload';syncBuilder();loadFile(f);}});
-}
+// circuit from a screenshot: drop it anywhere on the page, paste it (⌘V), or click the drop area to browse
+function takeImage(f){if(!f)return;if($('builder').hidden)openBuilder('upload');B.mode='upload';syncBuilder();loadFile(f);}
+{const all=$('dropAll'),zone=$('dropzone');let depth=0;
+  const files=e=>e.dataTransfer&&[...e.dataTransfer.types].includes('Files');
+  addEventListener('dragenter',e=>{if(!files(e))return;e.preventDefault();depth++;all.hidden=false;zone.classList.add('over');});
+  addEventListener('dragover',e=>{if(!files(e))return;e.preventDefault();e.dataTransfer.dropEffect='copy';});
+  addEventListener('dragleave',e=>{if(!files(e))return;depth=Math.max(0,depth-1);if(!depth){all.hidden=true;zone.classList.remove('over');}});
+  addEventListener('drop',e=>{if(!files(e))return;e.preventDefault();depth=0;all.hidden=true;zone.classList.remove('over');
+    const fs=[...e.dataTransfer.files];takeImage(fs.find(f=>/^image\//.test(f.type))||fs[0]);});
+  addEventListener('paste',e=>{if(e.target.closest&&e.target.closest('input,textarea'))return;
+    const it=[...((e.clipboardData&&e.clipboardData.items)||[])].find(i=>i.type.startsWith('image/'));if(it){e.preventDefault();takeImage(it.getAsFile());}});
+  zone.addEventListener('click',()=>$('fileIn').click());
+  zone.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('fileIn').click();}});}
 
 /* ================= FRAME ================= */
 let camInit=false;
@@ -1946,7 +1988,17 @@ function resize(){
   sprayMat.uniforms.uScale.value=(ch*renderer.getPixelRatio())/(2*Math.tan(FOV*Math.PI/360));
 }
 const visorEl=$('visor'), flashEl=$('flash'), statusEl=$('status');
-const sprayFx={el:$('sprayfx'),v:-1};
+const sprayFx={el:$('sprayfx'),v:-1}, rearFx={el:$('rearfx'),k:'',was:false};
+/* ================= REAR GLOW (shared by the game page and the phone) ================= */
+function rearGlow(el,st,b){
+  let l=0,r=0,bt=0,col='196 248 255',closing=false;
+  if(b){const k=clamp((52-b.d)/40,0.35,1),cl=b.cl*3.6;col=b.d<12&&cl>5?'255 75 58':(cl>8||b.d<20)?'255 194 71':'196 248 255';
+    if(b.side<0)l=k;else if(b.side>0)r=k;else{bt=k;l=r=k*0.3;}closing=cl>8;}
+  const key=[l,r,bt].map(v=>v.toFixed(2)).join()+col+closing;
+  if(key!==st.k){st.k=key;el.style.setProperty('--l',l);el.style.setProperty('--r',r);el.style.setProperty('--b',bt);el.style.setProperty('--rc',col);el.classList.toggle('closing',closing);}
+  if(b&&!st.was){el.classList.remove('arrive');void el.offsetWidth;el.classList.add('arrive');}
+  st.was=!!b;}
+
 const dropsCv=$('drops'), dctx=dropsCv.getContext('2d'), DROPS=[];
 function resizeDrops(){dropsCv.width=Math.round(cw*0.6);dropsCv.height=Math.round(ch*0.6);}
 function drawDrops(dt,w){
@@ -1977,10 +2029,14 @@ function frame(now){
     toast(`<b class="${v}">${v==='safe'?'Safe pass':'Near miss'} · ${r.kmh} km/h</b>${h.label}. ${h.warnD!=null?'Radar warned '+Math.round(h.warnD)+' m out. ':''}${h.firstSeenD!=null?'In sight at '+Math.round(h.firstSeenD)+' m. ':''}${h.rdrD!=null?'On-board radar at '+Math.round(h.rdrD)+' m. ':''}${h.reactD!=null?'You braked '+Math.round(h.reactD)+' m before.':'You did not brake.'}`);}
   if(toastT>0){toastT-=dt;if(toastT<=0)$('toast').hidden=true;}
   if(running&&!w.done){const rate=w.rain*w.rain;
-    w.traffic.forEach((c,i)=>{const n=Math.round(rate*clamp(c.v/50,0,1.6)*240*dt+Math.random()*0.6);if(n>0){const m=trafficMeshes[i],vel=new THREE.Vector3(0,0,-1).applyQuaternion(m.quaternion).multiplyScalar(c.v);emitSpray(m,[-0.82,0.3,1.9],vel,n);emitSpray(m,[0.82,0.3,1.9],vel,n);emitSpray(m,[0,0.45,2.4],vel,Math.ceil(n/2));}});
+    w.traffic.forEach((c,i)=>{const n=Math.round(rate*clamp(c.v/50,0,1.6)*240*dt+Math.random()*0.6),m=trafficMeshes[i],vel=new THREE.Vector3(0,0,-1).applyQuaternion(m.quaternion).multiplyScalar(c.v);
+      if(n>0){emitSpray(m,[-0.82,0.3,1.9],vel,n);emitSpray(m,[0.82,0.3,1.9],vel,n);emitSpray(m,[0,0.45,2.4],vel,Math.ceil(n/2));}
+      const nf=Math.round(waterDepth(c.s,c.lat,w.rain)*clamp(c.v/50,0,1.6)*450*dt+Math.random()*0.5);if(nf>0&&c.v>3){emitTyreSpray(m,-1,vel,nf);emitTyreSpray(m,1,vel,nf);}});
     if(w.opts.driver==='drive'&&w.player.sliding){const sl=clamp(Math.abs(w.player.ar)*4+Math.max(0,w.player.kr)*2+Math.max(0,-w.player.kf),0,2),ns=Math.round(sl*60*dt+Math.random()*0.6);
       if(ns>0){const vel=new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion).multiplyScalar(w.player.v*0.3);emitSpray(player,[-0.8,0.35,1.6],vel,ns);emitSpray(player,[0.8,0.35,1.6],vel,ns);}}
-    const n=Math.round(rate*clamp(w.player.v/50,0,1.6)*70*dt+Math.random()*0.4);if(n>0){const vel=new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion).multiplyScalar(w.player.v);emitSpray(player,[-0.82,0.3,1.9],vel,n);emitSpray(player,[0.82,0.3,1.9],vel,n);}}
+    const n=Math.round(rate*clamp(w.player.v/50,0,1.6)*70*dt+Math.random()*0.4);if(n>0){const vel=new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion).multiplyScalar(w.player.v);emitSpray(player,[-0.82,0.3,1.9],vel,n);emitSpray(player,[0.82,0.3,1.9],vel,n);}
+    {const P=w.player,nf=Math.round(waterDepth(P.s,P.lat,w.rain)*clamp(P.v/50,0,1.6)*1200*dt+Math.random()*0.5);
+      if(nf>0&&P.v>3){const vel=new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion).multiplyScalar(P.v);emitTyreSpray(player,-1,vel,nf);emitTyreSpray(player,1,vel,nf);}}}
   const T1=performance.now();
   syncScene(w,simT,dt);
   updateSpray(dt,w.rain);updateRain(dt,camera.position,vel,w.rain);
@@ -1991,6 +2047,7 @@ function frame(now){
   if(ui.cam==='cockpit'&&((w.spray||0)>0.01||DROPS.length))drawDrops(dt,w);else{dropsCv.style.opacity=0;DROPS.length=0;}
   const T3=performance.now();
   drawHUD(w,simT,dt);
+  rearGlow(rearFx.el,rearFx,running&&(w.opts.hud||w.opts.visor)?w.behind:null);
   const T4=performance.now();
   phoneFrame(w,simT,dt,now);
   const T5=performance.now();

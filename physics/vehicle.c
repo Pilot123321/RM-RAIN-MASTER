@@ -37,16 +37,29 @@
 #define BS_PEAK 1.8
 #define TRAIL0 0.04   /* pneumatic trail at small slip, m */
 static const double GEARS[8] = {18.1, 14.98, 12.4, 10.27, 8.5, 7.04, 5.83, 4.81};
+#define GREV 16.0      /* reverse: overall ratio, drive fades out above ~8 m/s */
 static const double CORNERS4[4][2] = {{2.7, 0.95}, {2.7, -0.95}, {-2.55, 0.95}, {-2.55, -0.95}};
 
 /* state shared with JavaScript: index order must match VEH_FIELDS in game.html */
 enum { S_S, S_LAT, S_PSI, S_VX, S_VY, S_R, S_WF, S_WR, S_KF, S_KR, S_AF, S_AR, S_FYFS, S_FYRS, S_AX, S_AY,
        S_THR, S_BRK, S_DELTA, S_GEAR, S_CUT, S_RPM, S_HITV, S_LATV, S_V, S_SLIDING, S_BETA,
-       S_SATF, S_SATR, S_MZ, S_GRIPF, S_GRIPR, S_COUNT };
+       S_SATF, S_SATR, S_MZ, S_GRIPF, S_GRIPR, S_AQUA, S_REV, S_COUNT };
 static double st[S_COUNT];
 static double curv[16384];
 static int KN = 1;
 static double KDS = 1, KL = 1;
+static double water_mm = 0;   /* standing water under the car, set by the caller each frame */
+
+/* Aquaplaning. A tyre has to push water out of its footprint; above a critical speed it cannot, and a wedge of
+   water lifts the contact patch. For smooth tyres Horne & Dreher's law puts the onset at v ~ sqrt(pressure); a
+   grooved wet evacuates water through its tread, so the onset here scales as 1/sqrt(film depth): about 380 km/h
+   in a 1 mm film, 220 km/h in 3 mm, 170 km/h in 5 mm. Grip then fades over the next ~50 % of that speed. */
+static double aqua_loss(double v, double depth) {
+  if (depth < 0.15) return 0;
+  double vc = 105.0 * sqrt(1.0 / depth);
+  return clampd((v - 0.8 * vc) / (0.5 * vc), 0, 1);
+}
+EXPORT(veh_set_water) void veh_set_water(double mm) { water_mm = mm > 0 ? mm : 0; }
 
 EXPORT(veh_state) double *veh_state(void) { return st; }
 EXPORT(veh_curv) double *veh_curv(void) { return curv; }
@@ -99,7 +112,7 @@ static void wall_contact(double wall) {
   if (hit > 0) {
     st[S_VX] = Vs * cs + Vn * sn; st[S_VY] = -Vs * sn + Vn * cs; st[S_R] = r;
     if (hit > st[S_HITV]) st[S_HITV] = hit;
-    double wmax = st[S_VX] / RW + 2; if (st[S_WF] > wmax) st[S_WF] = wmax; if (st[S_WF] < 0) st[S_WF] = 0;
+    if (st[S_REV] < 0.5) { double wmax = st[S_VX] / RW + 2; if (st[S_WF] > wmax) st[S_WF] = wmax; if (st[S_WF] < 0) st[S_WF] = 0; }
   }
 }
 
@@ -113,15 +126,16 @@ EXPORT(veh_reset) void veh_reset(void) {
 /* one frame: gearbox, steering rate limit, then adaptive substeps of the stiff wheel-slip dynamics */
 EXPORT(veh_step) void veh_step(double dt, double mu, double dTarget, int aids, double aeroK, double wall) {
   const double L = LF + LR;
-  int gear = (int)st[S_GEAR];
-  st[S_RPM] = fmax(4200, st[S_WR] * 60 / (2 * PI) * GEARS[gear]);
-  if (st[S_CUT] > 0) st[S_CUT] -= dt;
+  int gear = (int)st[S_GEAR], rev = st[S_REV] > 0.5;
+  st[S_RPM] = fmax(4200, fabs(st[S_WR]) * 60 / (2 * PI) * (rev ? GREV : GEARS[gear]));
+  if (rev) { gear = 0; st[S_CUT] = 0; }
+  else if (st[S_CUT] > 0) st[S_CUT] -= dt;
   else if (st[S_RPM] > 11800 && gear < 7) { gear++; st[S_CUT] = 0.045; }
   else if (st[S_RPM] < 7300 && gear > 0) { gear--; st[S_CUT] = 0.03; }
   st[S_GEAR] = gear;
   double rate = (aids ? 2.2 : 3.5) * dt;
   st[S_DELTA] += clampd(dTarget - st[S_DELTA], -rate, rate);
-  double dl = st[S_DELTA], cd = cos(dl), sd = sin(dl), Gr = GEARS[gear];
+  double dl = st[S_DELTA], cd = cos(dl), sd = sin(dl), Gr = rev ? GREV : GEARS[gear];
   double Iwf = 2.4, Iwr = 2.6 + 0.045 * Gr * Gr;
   double Dest = mu * (3900 + 0.25 * RHO * CLA * aeroK * st[S_VX] * st[S_VX]);
   double stiff = RW * RW * BR * CC * Dest / (Iwf * fmax(fabs(st[S_VX]), 3));
@@ -131,7 +145,11 @@ EXPORT(veh_step) void veh_step(double dt, double mu, double dTarget, int aids, d
     double down = 0.5 * RHO * CLA * aeroK * v2, drag = 0.5 * RHO * CDA * v2 * sgn(vx) + (fabs(vx) > 0.1 ? 220 * sgn(vx) : 0);
     double Fzf = fmax(500, M * G0 * LR / L + down * AEROF - M * st[S_AX] * HCG / L);
     double Fzr = fmax(500, M * G0 * LF / L + down * (1 - AEROF) + M * st[S_AX] * HCG / L);
-    double capF = axle_grip(Fzf, M * st[S_AY] * HCG / 1.6 * 0.55, mu), capR = axle_grip(Fzr, M * st[S_AY] * HCG / 1.6 * 0.45, mu * REARMU);
+    /* the fronts meet the full water film; the rears run in the channels the fronts have partly cleared */
+    double aqF = aqua_loss(fabs(vx), water_mm), aqR = aqua_loss(fabs(vx), water_mm * 0.55);
+    st[S_AQUA] = aqF;
+    double capF = axle_grip(Fzf, M * st[S_AY] * HCG / 1.6 * 0.55, mu * (1 - 0.65 * aqF)),
+           capR = axle_grip(Fzr, M * st[S_AY] * HCG / 1.6 * 0.45, mu * REARMU * (1 - 0.65 * aqR));
     double vxf = vx * cd + (vy + LF * r) * sd, vyf = -vx * sd + (vy + LF * r) * cd, vxr = vx, vyr = vy - LR * r;
     double af = -atan2(vyf, fmax(fabs(vxf), 0.5)), ar = -atan2(vyr, fmax(fabs(vxr), 0.5));
     double kf = clampd((st[S_WF] * RW - vxf) / fmax(fabs(vxf), 3), -1, 3), kr = clampd((st[S_WR] * RW - vxr) / fmax(fabs(vxr), 3), -1, 3);
@@ -141,21 +159,32 @@ EXPORT(veh_step) void veh_step(double dt, double mu, double dTarget, int aids, d
     double kr2 = fmin(1, fmax(fabs(vx), 1) * h / 0.35);
     st[S_FYFS] += (Fyf - st[S_FYFS]) * kr2; st[S_FYRS] += (Fyr - st[S_FYRS]) * kr2; Fyf = st[S_FYFS]; Fyr = st[S_FYRS];
     /* torques: engine through the gearbox on the rear, brakes on both, engine braking off throttle */
-    double rpm = fmax(4200, st[S_WR] * 60 / (2 * PI) * Gr);
-    double Tdrive = st[S_CUT] > 0 ? 0 : st[S_THR] * fmin(torque_at(rpm) * Gr * 0.93, PMAX / fmax(st[S_WR], 4));
-    if (st[S_THR] < 0.05 && st[S_WR] > 3) Tdrive -= fmin(1400 * RW, 0.11 * rpm * RW);
-    if (aids && kr > 0.1) Tdrive *= clampd(1 - (kr - 0.1) * 7, 0, 1);                       /* traction control */
+    double rpm = fmax(4200, fabs(st[S_WR]) * 60 / (2 * PI) * Gr);
+    double Tdrive = st[S_CUT] > 0 ? 0 : st[S_THR] * fmin(torque_at(rpm) * Gr * 0.93, PMAX / fmax(fabs(st[S_WR]), 4));
+    if (rev) {                                                        /* reverse: drive backwards, gently, up to ~30 km/h */
+      Tdrive = -Tdrive * 0.35 * clampd(1 - (fabs(vx) - 6) / 3, 0, 1);
+      if (aids && kr < -0.1) Tdrive *= clampd(1 - (-kr - 0.1) * 7, 0, 1);
+    } else {
+      if (st[S_THR] < 0.05 && st[S_WR] > 3) Tdrive -= fmin(1400 * RW, 0.11 * rpm * RW);
+      if (aids && kr > 0.1) Tdrive *= clampd(1 - (kr - 0.1) * 7, 0, 1);                     /* traction control */
+    }
     double Tbf = st[S_BRK] * FBRAKE * RW * BB, Tbr = st[S_BRK] * FBRAKE * RW * (1 - BB);
-    if (aids) { if (kf < -0.12) Tbf *= clampd(1 + (kf + 0.12) * 8, 0, 1); if (kr < -0.12) Tbr *= clampd(1 + (kr + 0.12) * 8, 0, 1); } /* ABS */
+    if (aids && !rev) { if (kf < -0.12) Tbf *= clampd(1 + (kf + 0.12) * 8, 0, 1); if (kr < -0.12) Tbr *= clampd(1 + (kr + 0.12) * 8, 0, 1); } /* ABS */
     st[S_WF] += (-Fxf * RW) / Iwf * h; st[S_WR] += (Tdrive - Fxr * RW) / Iwr * h;
-    /* brakes can stop a wheel but never spin it backwards */
-    st[S_WF] = st[S_WF] > 0 ? fmax(0, st[S_WF] - Tbf / Iwf * h) : 0;
-    st[S_WR] = st[S_WR] > 0 ? fmax(0, st[S_WR] - Tbr / Iwr * h) : fmax(0, st[S_WR]);
+    if (rev) {                                                        /* brakes slow a wheel towards zero from either side */
+      st[S_WF] = sgn(st[S_WF]) * fmax(0, fabs(st[S_WF]) - Tbf / Iwf * h);
+      st[S_WR] = sgn(st[S_WR]) * fmax(0, fabs(st[S_WR]) - Tbr / Iwr * h);
+    } else {                                                          /* brakes can stop a wheel but never spin it backwards */
+      st[S_WF] = st[S_WF] > 0 ? fmax(0, st[S_WF] - Tbf / Iwf * h) : 0;
+      st[S_WR] = st[S_WR] > 0 ? fmax(0, st[S_WR] - Tbr / Iwr * h) : fmax(0, st[S_WR]);
+    }
     double FxB = Fxf * cd - Fyf * sd + Fxr, FyB = Fxf * sd + Fyf * cd + Fyr;
     double ax = (FxB - drag) / M + vy * r, ay = FyB / M - vx * r, rd = (LF * (Fxf * sd + Fyf * cd) - LR * Fyr) / IZ;
     st[S_VX] += ax * h; st[S_VY] += ay * h; st[S_R] += rd * h;
-    if (st[S_VX] < 0.4 && st[S_THR] < 0.05 && fabs(st[S_VY]) < 0.4) { st[S_VX] = fmax(0, st[S_VX]); if (st[S_VX] < 0.05) { st[S_VY] *= 0.9; st[S_R] *= 0.9; } }
-    if (st[S_VX] < -1) st[S_VX] = -1;
+    if (!rev) {
+      if (st[S_VX] < 0.4 && st[S_THR] < 0.05 && fabs(st[S_VY]) < 0.4) { st[S_VX] = fmax(0, st[S_VX]); if (st[S_VX] < 0.05) { st[S_VY] *= 0.9; st[S_R] *= 0.9; } }
+      if (st[S_VX] < -1) st[S_VX] = -1;                             /* no rolling back without reverse, only a rock-back after a spin */
+    } else if (st[S_THR] < 0.05 && fabs(st[S_VX]) < 0.3 && fabs(st[S_VY]) < 0.4) { st[S_VX] *= 0.9; st[S_VY] *= 0.9; st[S_R] *= 0.9; }
     st[S_AY] = lerpd(st[S_AY], ay + vx * r, 0.2); st[S_AX] = lerpd(st[S_AX], ax - vy * r, 0.15);
     st[S_KF] = kf; st[S_KR] = kr; st[S_AF] = af; st[S_AR] = ar;
     /* what the driver feels through the wheel: self-aligning torque Mz = trail · Fy. The pneumatic trail shrinks

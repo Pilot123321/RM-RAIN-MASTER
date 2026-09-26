@@ -137,6 +137,36 @@ for steer in [0.02, 0.04, 0.06, 0.08, 0.12]:          # sweep the steering until
         ay = max(ay, abs(st[ix["ay"]]))
 check(2.5 <= ay / 9.81 <= 5.5, f"peak lateral {ay/9.81:.1f} g at 250 km/h (real F1 3.5-5 g; this tyre model runs a little under)")
 
+# aquaplaning: deeper water brings the onset down; in a 1 mm film nothing happens at race speed
+def aqua_at(kmh, mm):
+    LIB.veh_set_water(mm); reset(kmh / 3.6); st[ix["thr"]] = 0.5
+    for k in range(12): LIB.veh_step(1 / 120, 1.2, 0.0, 1, 1, 1e4)
+    return st[ix["aqua"]]
+a1, a4, a4s = aqua_at(290, 1.0), aqua_at(290, 4.0), aqua_at(120, 4.0)
+check(a1 < 0.05 and a4 > 0.3 and a4s < 0.05, f"aquaplaning at 290 km/h: {a1:.2f} in a 1 mm film, {a4:.2f} in 4 mm; at 120 km/h in 4 mm: {a4s:.2f}")
+def brake_dist(mm):
+    LIB.veh_set_water(mm); reset(280 / 3.6); st[ix["brk"]] = 1; st[ix["v"]] = 280 / 3.6; x0 = st[ix["s"]]
+    while st[ix["v"]] > 100 / 3.6: LIB.veh_step(1 / 120, 1.1, 0, 1, 1, 6.6)
+    return st[ix["s"]] - x0
+d0, d4 = brake_dist(0), brake_dist(4.0)
+check(d4 > d0 * 1.05, f"wet braking 280→100 km/h: {d0:.0f} m on a thin film, {d4:.0f} m through 4 mm of standing water")
+LIB.veh_set_water(0)
+
+# front-tyre spray at 250 km/h: tread pick-up climbs a few metres beside the car, the bow wave stays low
+LIB.spray_clear(); v = 250 / 3.6; z = 0.0
+for k in range(int(2.0 / 0.016)):
+    z += v * 0.016
+    for side in (-1, 1): LIB.spray_emit_tyre(8, side * 0.8, 0.3, z + 1.9, 0.0, v, side, 0.0, 0.0)
+    LIB.spray_update(0.016, 0.8)
+fh = LIB.spray_height_q(0.95)
+check(1.0 <= fh <= 6.0, f"front-tyre mist reaches {fh:.1f} m at 250 km/h (lower than the rear plume)")
+
+# reverse: from a standstill with reverse engaged the car backs up, and tops out at a crawl
+reset(0); st[ix["rev"]] = 1; st[ix["thr"]] = 1
+for k in range(120 * 4): LIB.veh_step(1 / 120, 1.4, 0, 1, 1, 1e4)
+check(-12 < st[ix["vx"]] < -4, f"reverse: {st[ix['vx']]*3.6:.0f} km/h after 4 s on full reverse throttle")
+st[ix["rev"]] = 0
+
 # steering feel: aligning torque rises with steering, peaks, then drops while lateral grip is still building
 mz, fy = [], []
 for steer in np.linspace(0.005, 0.2, 24):

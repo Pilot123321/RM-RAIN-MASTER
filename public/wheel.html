@@ -13,14 +13,16 @@
 <video id="cam" playsinline muted autoplay hidden></video>
 <canvas id="hudcv" aria-label="Visor HUD"></canvas>
 <p id="hudwait">The visor HUD shows here once the game is open on the Mac</p>
-<div class="pedal" id="brake"><i class="track" aria-hidden="true"><b></b></i><span class="pv"></span>Brake</div>
-<div class="pedal" id="gas"><i class="track" aria-hidden="true"><b></b></i><span class="pv"></span>Gas</div>
+<div class="pedal" id="brake">Brake</div>
+<div class="pedal" id="gas">Gas</div>
 <div class="status"><span class="dot" id="dot"></span><span id="conn">Connecting…</span> · <span id="ang">0°</span></div>
 <div class="bar">
   <button id="bCenter">Center</button><button id="bRun" class="primary">Start</button><button id="bDrop">Hazard</button><button id="bCam">View</button><button id="bAR">AR</button><button id="bCal" hidden>Calibrate</button>
-  <button id="bSetup">Setup</button><button id="bLock" class="more" hidden>Lock 45°</button><button id="bInv" class="more" hidden>Invert</button><button id="bFfb" class="more" hidden>Feedback</button><button id="bLevel" class="more" hidden>Level AR</button>
+  <button id="bSetup">Setup</button><button id="bLock" class="more" hidden>Lock 45°</button><button id="bInv" class="more" hidden>Invert</button><button id="bFfb" class="more" hidden>Feedback</button><button id="bFlip" class="more" hidden>Flip look</button>
 </div>
 <div class="glow" id="glow"></div>
+<div id="rearfx" aria-hidden="true"></div>
+<p id="recenter" aria-live="polite">Centred</p>
 <div class="sheet" id="sheet">
   <div>
     <h1>Radar Wheel</h1>
@@ -36,20 +38,23 @@
 const $=id=>document.getElementById(id), clamp=(x,a,b)=>x<a?a:x>b?b:x;
 const angd=(a,b)=>{let d=a-b;while(d>180)d-=360;while(d<-180)d+=360;return d;};
 const iOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-let lockSaved=45,invSaved=false,ffbSaved=true,levelSaved=true;try{lockSaved=+localStorage.getItem('rw.lock')||45;invSaved=localStorage.getItem('rw.inv2')==='1';ffbSaved=localStorage.getItem('rw.ffb')!=='0';levelSaved=localStorage.getItem('rw.level')!=='0';}catch(e){}
+let lockSaved=45,invSaved=false,ffbSaved=true,flipSaved=false;try{flipSaved=localStorage.getItem('rw.flip')==='1';lockSaved=+localStorage.getItem('rw.lock')||45;invSaved=localStorage.getItem('rw.inv2')==='1';ffbSaved=localStorage.getItem('rw.ffb')!=='0';}catch(e){}
+// each phone (tab) has its own id, so the game can tell the wheel phone from the AR viewer
+let PID='';try{PID=sessionStorage.getItem('rw.id')||'';}catch(e){}
+if(!PID){PID=Math.random().toString(36).slice(2,10);try{sessionStorage.setItem('rw.id',PID);}catch(e){}}
 let CAL={pitchOff:0,hfov:66,camH:1.05,yawOff:0};try{Object.assign(CAL,JSON.parse(localStorage.getItem('rw.arcal')||'{}'));}catch(e){}
 function saveCal(){try{localStorage.setItem('rw.arcal',JSON.stringify(CAL));}catch(e){}}
-const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,lock:lockSaved,inv:invSaved,ffb:ffbSaved,level:levelSaved,touchSteer:null,games:0,running:false,alert:0};
+const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,lock:lockSaved,inv:invSaved,ffb:ffbSaved,yawInv:flipSaved,touchSteer:null,games:0,running:false,alert:0};
 
 // ---- connection
 let ws=null;
 function connect(){
-  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=wheel');
-  ws.onopen=()=>{status();hello();};
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=wheel&id='+PID);
+  ws.onopen=()=>{status();hello();if(arOn)send({t:'cmd',c:'ar',on:true});};
   ws.onmessage=e=>{if(typeof e.data!=='string')return;let m;try{m=JSON.parse(e.data);}catch(_){return;}
     if(m.t==='track'){onTrack(m);return;} if(m.t==='w'){onState(m);return;}
     if(m.t==='games'){S.games=m.n;status();hello();}
-    else if(m.t==='st'){S.running=m.r;$('bRun').textContent=m.r?'Stop':'Start';
+    else if(m.t==='st'){S.running=m.r;S.ap=!!m.ap;S.wh=m.wh||0;$('bRun').textContent=m.r?'Stop':'Start';
       if(m.a===2&&S.alert!==2&&navigator.vibrate){navigator.vibrate([90,60,90]);FFB.hold=performance.now()+260;}
       if(m.w&&!S.wall&&!S.ffb&&navigator.vibrate)navigator.vibrate(40);S.wall=m.w;
       // hysteresis: red holds for 0.8 s so the glow does not flicker around the threshold
@@ -63,7 +68,7 @@ let sent=0;
 function hello(){send({t:'hello',w:innerWidth,h:innerHeight,dpr:devicePixelRatio||1});}
 addEventListener('resize',()=>setTimeout(hello,200));
 function status(){const open=ws&&ws.readyState===1,ok=open&&S.games>0;$('dot').classList.toggle('ok',ok);
-  $('conn').textContent=!open?'Cannot reach '+location.host:!S.games?'Server OK, open the game on the Mac':`Linked · HUD ${fps} fps · v7`;
+  $('conn').textContent=!open?'Cannot reach '+location.host:!S.games?'Server OK, open the game on the Mac':`Linked · ${arOn?(S.ap?'AR view · autopilot driving':'AR view · wheel phone drives'):'Wheel'} · HUD ${fps} fps · v8`;
   $('hudwait').hidden=!!(trackOk&&W);
   if(open&&S.games&&!trackOk)$('hudwait').textContent='Linked, waiting for the track. Reload the game page on the Mac.';
   if(!HUD)$('hudwait').textContent='Could not load the HUD code from the Mac. Reload this page.';}
@@ -83,8 +88,8 @@ function onState(m){msgs++;const hz=m.hz.map(h=>({type:h[0],s:h[1],lat:h[2],yaw:
     for(let i=0;i<rd.k.length;i+=3)tracks.push({x:rd.k[i],z:rd.k[i+1],conf:true,barrier:false,obj:!!rd.k[i+2]});radar={ox:rd.o[0],oz:rd.o[1],rng:rd.g,att:rd.a,dets,tracks};}
   if(m.ffb){FFB.v=m.ffb;FFB.t=performance.now();}if(m.scr)S.scr=m.scr;
   const behind=m.bh?{d:m.bh[0],side:m.bh[1],cl:m.bh[2]}:null;
-  if(behind&&!S.behind&&S.running&&navigator.vibrate){navigator.vibrate([30,70,30]);FFB.hold=performance.now()+160;}S.behind=behind;
-  W={player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null,lapc:p[7]||0,brk:p[8]||0,thr:p[9]||0,gear:p[10]>=0?p[10]:null,rpm:p[11]||0,beta:p[12]||0,steer:p[13]||0},radar,behind,spray:m.sp||0,
+  if(behind&&!S.behind&&S.running&&navigator.vibrate){navigator.vibrate([30,70,30]);FFB.hold=performance.now()+160;}S.behind=behind;rearGlow($('rearfx'),REAR,S.running?behind:null);
+  W={player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null,lapc:p[7]||0,brk:p[8]||0,thr:p[9]||0,gear:p[10]>=0?p[10]:p[10]===-2?0:null,rev:p[10]===-2,rpm:p[11]||0,beta:p[12]||0,steer:p[13]||0},radar,behind,spray:m.sp||0,
     traffic:m.tr.map(c=>({s:c[0],lat:c[1],latV:c[2],v:c[3],vis:!!c[4],closing:!!c[5],lapc:c[6]||0})),hazards:hz,alert:m.a,near:m.ni>=0?hz[m.ni]:null,dNear:m.dn,
     vis:m.vis,flagOn:!!m.fo,sc:{flag:m.fl||null},opts:{driver:m.dr?'drive':'model',hud:m.hd!==0},t:m.tm};
   Wt=performance.now();if(HUD)HUD.NAV.zoom=m.z||1;
@@ -125,7 +130,8 @@ async function setAR(on){
     catch(e){arOn=false;$('hudwait').hidden=false;$('hudwait').textContent=!window.isSecureContext?'The camera needs the https:// address or the USB address.':'Camera access was refused or is not available.';setTimeout(status,3000);}}
   else{arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.hidden=true;video.srcObject=null;}
   $('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bCal').hidden=!arOn;if(!arOn){calOn=false;}
-  document.body.classList.toggle('ar',arOn);for(const id of ['gas','brake'])$(id)._set(0);}
+  // AR is a passenger view: the game's autopilot drives, so the pedals and steering are off
+  document.body.classList.toggle('ar',arOn);$('bCenter').textContent=arOn?'Recenter':'Center';ORI.yaw=0;S.gas=S.brake=0;S.touchSteer=null;send({t:'cmd',c:'ar',on:arOn});}
 function drawHud(now){
   cx.setTransform(1,0,0,1,0,0);
   if(arOn)cx.clearRect(0,0,cv.width,cv.height);else{cx.fillStyle='#000';cx.fillRect(0,0,cv.width,cv.height);}
@@ -137,16 +143,13 @@ function drawHud(now){
   const H=cv.height,Wd=cv.width,u=H/420;
   if(arOn){
     const uu=u*1.05,flash=true;
-    const o=oriAngles(now);
-    const cam={pitch:o.pitch+CAL.pitchOff,roll:S.level?o.roll:0,hfov:CAL.hfov,camH:CAL.camH,yawOff:CAL.yawOff,vw:video.videoWidth||0,vh:video.videoHeight||0};
+    const cam={pitch:CAL.pitchOff,roll:0,hfov:CAL.hfov,camH:CAL.camH,yawOff:CAL.yawOff-ORI.yaw,rawYaw:true,vw:video.videoWidth||0,vh:video.videoHeight||0};
     const A=HUD.drawARView(cx,view,now/1000,uu,Wd,H,cam);
     if(calOn)drawCal(A,Wd,H,uu);
     // readable bands for the header and lap tracker over a bright camera image
     const bx=Wd*0.27,bw=Wd*0.46,hh=H*0.12,th=H*0.14,ty=H-H*0.2-th;
-    cx.fillStyle='rgba(0,0,0,.38)';cx.fillRect(bx,0,bw,hh+10*u);cx.fillRect(bx,ty-4*u,bw,th+8*u);
-    HUD.drawHeader(cx,view,{x:bx,y:4*u,w:bw,h:H},uu,flash,HUD.headerInfo(view),hh);
+    cx.fillStyle='rgba(0,0,0,.38)';cx.fillRect(bx,ty-4*u,bw,th+8*u);
     HUD.drawTracker(cx,view,bx,ty,bw,th,uu,flash);
-    HUD.drawBehind(cx,view,uu,Wd/2,hh+22*u);
   } else {
     // the game screen's HUD layout (same camera, same positions), scaled to fit; no 3D picture behind it
     const gw=S.scr?S.scr[0]:1280,gh=S.scr?S.scr[1]:720,k=Math.min(Wd/gw,H/gh),ox=(Wd-gw*k)/2,oy=(H-gh*k)/2;
@@ -155,27 +158,38 @@ function drawHud(now){
   }
   frames++;
 }
-function send(o){if(ws&&ws.readyState===1){ws.send(typeof o==='string'?o:JSON.stringify(o));sent++;}}
+function send(o){if(ws&&ws.readyState===1){ws.send(typeof o==='string'?o:JSON.stringify(Object.assign({id:PID},o)));sent++;}}
 
-// ---- AR orientation: where "up" is in the phone's own axes. The gyro carries it between samples (fast, no
-// lag, no hand-shake noise); the accelerometer pulls it back slowly (no drift), trusting only readings near 1 g,
-// so the car's own acceleration and bumps do not tilt the overlay. Then a One-Euro filter for the last jitter.
-const ORI={u:null,t:0},D2R=Math.PI/180;
+// ---- AR head tracking, like a VR headset but horizontal only: turning the phone left/right turns the driver's
+// head (the view pans); tilting or rolling it does not move the view, so the horizon stays where it was calibrated.
+// "Up" in the phone's own axes comes from the gyro, pulled slowly towards gravity from the accelerometer (readings
+// near 1 g only); the head's yaw is the gyro rate about that vertical, integrated. Recenter zeroes it.
+const ORI={u:null,t:0,yaw:0,bias:0},D2R=Math.PI/180,REAR={k:'',was:false};
+/* ================= REAR GLOW (shared by the game page and the phone) ================= */
+function rearGlow(el,st,b){
+  let l=0,r=0,bt=0,col='196 248 255',closing=false;
+  if(b){const k=clamp((52-b.d)/40,0.35,1),cl=b.cl*3.6;col=b.d<12&&cl>5?'255 75 58':(cl>8||b.d<20)?'255 194 71':'196 248 255';
+    if(b.side<0)l=k;else if(b.side>0)r=k;else{bt=k;l=r=k*0.3;}closing=cl>8;}
+  const key=[l,r,bt].map(v=>v.toFixed(2)).join()+col+closing;
+  if(key!==st.k){st.k=key;el.style.setProperty('--l',l);el.style.setProperty('--r',r);el.style.setProperty('--b',bt);el.style.setProperty('--rc',col);el.classList.toggle('closing',closing);}
+  if(b&&!st.was){el.classList.remove('arrive');void el.offsetWidth;el.classList.add('arrive');}
+  st.was=!!b;}
+
 function fuse(e,ax,ay,az,gm){
   const now=e.timeStamp||performance.now(),dt=ORI.t?clamp((now-ORI.t)/1000,0,0.1):0;ORI.t=now;
   const m=[ax/gm,ay/gm,az/gm];if(!ORI.u){ORI.u=m;return;}const u=ORI.u,r=e.rotationRate;
   if(r&&r.alpha!=null&&dt>0){const wx=(r.beta||0)*D2R,wy=(r.gamma||0)*D2R,wz=(r.alpha||0)*D2R;   // about the phone's x, y, z
+    // turn rate about the vertical (+ = turning left). Phone gyros carry a small bias that makes "straight ahead"
+    // creep; it is measured whenever the phone is held still and subtracted. Looking roughly ahead and holding still,
+    // the view also eases back to centre (VR-style), so any leftover drift never builds up.
+    const wu=wx*u[0]+wy*u[1]+wz*u[2],wn=Math.hypot(wx,wy,wz);
+    if(wn<0.05)ORI.bias+=(wu-ORI.bias)*Math.min(1,dt/2);
+    ORI.yaw+=(wu-ORI.bias)*dt*(S.yawInv?-1:1);
+    if(wn<0.15&&Math.abs(ORI.yaw)<0.35)ORI.yaw-=ORI.yaw*Math.min(1,dt/10);
+    ORI.yaw=Math.atan2(Math.sin(ORI.yaw),Math.cos(ORI.yaw));
     const c0=wy*u[2]-wz*u[1],c1=wz*u[0]-wx*u[2],c2=wx*u[1]-wy*u[0];u[0]-=c0*dt;u[1]-=c1*dt;u[2]-=c2*dt;}   // du/dt = -ω × u
   const k=(r&&r.alpha!=null?Math.min(1,dt/0.8):Math.min(1,dt/0.12))*Math.exp(-Math.abs(gm-9.81)/1.5);
   for(let i=0;i<3;i++)u[i]+=(m[i]-u[i])*k;const n=Math.hypot(u[0],u[1],u[2])||1;for(let i=0;i<3;i++)u[i]/=n;}
-function euro(st,x,t,minC,beta){if(st.x==null){st.x=x;st.dx=0;st.t=t;return x;}const dt=Math.max(1e-3,(t-st.t)/1000);st.t=t;
-  const a=c=>1/(1+1/(2*Math.PI*c*dt)),dx=(x-st.x)/dt;st.dx+=(dx-st.dx)*a(1);st.x+=(x-st.x)*a(minC+beta*Math.abs(st.dx));return st.x;}
-const EU={p:{},r:{}};
-function oriAngles(now){const u=ORI.u;if(!u)return {pitch:0,roll:0};
-  // camera tilt down = up-vector's component out of the screen; roll = angle of "up" in the screen plane
-  const th=((screen.orientation&&screen.orientation.angle)!=null?screen.orientation.angle:(window.orientation||0))*D2R;
-  const sx=u[0]*Math.cos(th)-u[1]*Math.sin(th),sy=u[0]*Math.sin(th)+u[1]*Math.cos(th);
-  return {pitch:euro(EU.p,Math.asin(clamp(u[2],-1,1)),now,1.0,0.4),roll:euro(EU.r,Math.atan2(sx,sy),now,1.0,0.4)};}
 // ---- steering from gravity: the angle of "up" in the phone's screen plane
 function onMotion(e){
   const a=e.accelerationIncludingGravity;if(!a||a.x==null)return;
@@ -192,45 +206,44 @@ function onMotion(e){
 function recenter(){if(S.hasMotion)S.neutral=Math.atan2(S.gx,S.gy)*180/Math.PI;S.touchSteer=S.touchSteer==null?null:0;}
 
 // ---- pedals (multi-touch)
-// in AR the pedals are sliders: the thumb's height sets the pedal (bottom 0 %, top 100 %). Gas stays where you
-// leave it (hold 30 % without tapping); brake springs back to zero when you let go. Elsewhere they are on/off.
 function pedal(el,key){
-  const set=v=>{v=Math.round(clamp(v,0,1)*100)/100;if(v>0&&!S[key]&&navigator.vibrate&&!arOn)navigator.vibrate(12);S[key]=v;
-    el.classList.toggle('on',v>0);el.style.setProperty('--v',v);el.querySelector('.pv').textContent=arOn?Math.round(v*100)+'%':'';};
-  const fromY=e=>{const r=el.getBoundingClientRect(),top=r.top+r.height*0.12,bot=r.bottom-r.height*0.2;return (bot-e.clientY)/(bot-top);};
-  el.addEventListener('pointerdown',e=>{if(calOn)return;e.preventDefault();el.setPointerCapture(e.pointerId);el.dataset.drag='1';set(arOn?fromY(e):1);});
-  el.addEventListener('pointermove',e=>{if(arOn&&el.dataset.drag==='1')set(fromY(e));});
-  for(const ev of ['pointerup','pointercancel','lostpointercapture'])el.addEventListener(ev,()=>{if(el.dataset.drag!=='1')return;el.dataset.drag='';if(!arOn||key==='brake')set(0);});
-  el._set=set;
+  const on=v=>{S[key]=v;el.classList.toggle('on',!!v);if(v&&navigator.vibrate)navigator.vibrate(12);};
+  el.addEventListener('pointerdown',e=>{if(calOn||arOn)return;e.preventDefault();el.setPointerCapture(e.pointerId);on(1);});
+  for(const ev of ['pointerup','pointercancel','lostpointercapture'])el.addEventListener(ev,()=>on(0));
 }
 pedal($('gas'),'gas');pedal($('brake'),'brake');
 
 // ---- touch steering fallback: drag sideways on the wheel
 const wb=document.body;let dragX=null;
-wb.addEventListener('pointerdown',e=>{if(S.hasMotion||e.target.closest('.pedal,.bar,.sheet'))return;dragX=e.clientX;wb.setPointerCapture(e.pointerId);S.touchSteer=0;});
+wb.addEventListener('pointerdown',e=>{if(arOn||S.hasMotion||e.target.closest('.pedal,.bar,.sheet'))return;dragX=e.clientX;wb.setPointerCapture(e.pointerId);S.touchSteer=0;});
 wb.addEventListener('pointermove',e=>{if(dragX==null)return;S.touchSteer=clamp((e.clientX-dragX)/(innerWidth*0.25),-1,1);});
 for(const ev of ['pointerup','pointercancel'])wb.addEventListener(ev,()=>{dragX=null;S.touchSteer=0;});
 
 // ---- buttons
-$('bCenter').onclick=recenter;
+$('bCenter').onclick=()=>{if(arOn){ORI.yaw=0;recFlash();}else recenter();};
 $('bRun').onclick=()=>send({t:'cmd',c:S.running?'stop':'start'});
 $('bDrop').onclick=()=>send({t:'cmd',c:'drop'});
 $('bCam').onclick=()=>send({t:'cmd',c:'cam'});
 $('bAR').onclick=()=>setAR(!arOn);
 $('bSetup').onclick=()=>{const open=$('bLock').hidden;document.querySelectorAll('.more').forEach(b=>b.hidden=!open);$('bSetup').setAttribute('aria-pressed',open?'true':'false');};
 $('bCal').onclick=()=>{calOn=!calOn;$('bCal').setAttribute('aria-pressed',calOn?'true':'false');$('bCal').textContent=calOn?'Done':'Calibrate';};
-function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttribute('aria-pressed',S.inv?'true':'false');$('bFfb').setAttribute('aria-pressed',S.ffb?'true':'false');$('bLevel').setAttribute('aria-pressed',S.level?'true':'false');
-  try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv2',S.inv?'1':'0');localStorage.setItem('rw.ffb',S.ffb?'1':'0');localStorage.setItem('rw.level',S.level?'1':'0');}catch(e){}}
+function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttribute('aria-pressed',S.inv?'true':'false');$('bFfb').setAttribute('aria-pressed',S.ffb?'true':'false');$('bFlip').setAttribute('aria-pressed',S.yawInv?'true':'false');
+  try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv2',S.inv?'1':'0');localStorage.setItem('rw.ffb',S.ffb?'1':'0');localStorage.setItem('rw.flip',S.yawInv?'1':'0');}catch(e){}}
 $('bLock').onclick=()=>{S.lock=S.lock===30?45:S.lock===45?70:30;syncOpts();};
 $('bFfb').onclick=()=>{S.ffb=!S.ffb;if(!S.ffb&&navigator.vibrate)navigator.vibrate(0);syncOpts();};
-$('bLevel').onclick=()=>{S.level=!S.level;syncOpts();};
+$('bFlip').onclick=()=>{S.yawInv=!S.yawInv;ORI.yaw=0;syncOpts();};
+// AR: double-tap anywhere on the view to make the way you are facing "straight ahead" (as in VR headsets)
+let lastTap=0;
+addEventListener('pointerdown',e=>{if(!arOn||calOn||e.target.closest('.bar,.sheet'))return;const now=performance.now();
+  if(now-lastTap<350){ORI.yaw=0;lastTap=0;if(navigator.vibrate)navigator.vibrate(15);recFlash();}else lastTap=now;});
+function recFlash(){const el=$('recenter');el.classList.remove('show');void el.offsetWidth;el.classList.add('show');}
 // ---- force feedback from the tyres. A phone motor is only on or off, so each channel is a rhythm and its
 // strength a duty cycle inside each 60 ms window, highest priority first:
 //   impact: one long pulse · lock-up: fast ABS-like chatter · kerb: stripe-rate pulses · wheelspin / rear slide:
 //   a long buzz · front scrub (understeer, past the tyre peak): a stutter · steering weight (self-aligning torque):
 //   a faint hum that fades as the front goes light before it lets go · aquaplaning: the hum drops out entirely.
 const FFB={v:[0,0,0,0,0,0,0,0,0],t:0,hold:0,lastHit:0,buzz:false,tick:0};
-setInterval(()=>{if(!S.ffb||!navigator.vibrate)return;const now=performance.now();if(now<FFB.hold)return;FFB.tick++;
+setInterval(()=>{if(!S.ffb||arOn||!navigator.vibrate)return;const now=performance.now();if(now<FFB.hold)return;FFB.tick++;
   const [kerb,hit,weight,scrub,slide,lock,spin,spray,aqua]=now-FFB.t<300&&S.running?FFB.v:[0,0,0,0,0,0,0,0,0];let pat=null;
   if(hit>0.5&&now-FFB.lastHit>300){pat=[110];FFB.lastHit=now;FFB.hold=now+110;}
   else if(lock>0.1)pat=[7,9,7,9,7];
@@ -268,7 +281,7 @@ function loop(now){
 }
 function curDeg(){return S.hasMotion?S.angle:(S.touchSteer||0)*S.lock;}
 setInterval(()=>{const deg=curDeg();let s=clamp(deg/S.lock,-1,1);if(Math.abs(deg)<1.5)s=0;S.steer=s;
-  const now=performance.now(),msg=JSON.stringify({t:'in',s:+s.toFixed(3),g:S.gas,b:S.brake});
+  if(arOn)s=0;const now=performance.now(),msg=JSON.stringify({t:'in',id:PID,s:+s.toFixed(3),g:arOn?0:S.gas,b:arOn?0:S.brake});
   if(msg!==last||now-lastT>100){send(msg);last=msg;lastT=now;}},25);
 connect();requestAnimationFrame(loop);
 })();

@@ -67,7 +67,7 @@ const HW=6,WALL=6.6,RANGE=700,TAU=Math.PI*2;let RM=false;
 const clamp=(x,a,b)=>x<a?a:x>b?b:x, lerp=(a,b,t)=>a+(b-a)*t;
 const angd=(a,b)=>{let d=a-b;while(d>Math.PI)d-=TAU;while(d<-Math.PI)d+=TAU;return d;};
 ${parts.join('\n')}
-return {setCalm(v){RM=!!v;},drawNav,NAV,dSigned,wrapS,drawHeader,headerInfo,drawTracker,drawARView,drawScreen,drawBehind,
+return {setCalm(v){RM=!!v;},drawNav,NAV,dSigned,wrapS,drawHeader,headerInfo,drawTracker,drawARView,drawScreen,
   setSize(w,h){cw=w;ch=h;},
   setTrack(t){N=t.N;L=t.L;DS=t.DS;PX=Float64Array.from(t.PX);PZ=Float64Array.from(t.PZ);TX=Float64Array.from(t.TX);TZ=Float64Array.from(t.TZ);H=Float64Array.from(t.H);SL=Float64Array.from(t.SL);CORNERS=t.C;},
   setWorld(w){world=w;}, ready(){return !!PX;}};
@@ -93,13 +93,15 @@ let inputCount = 0, inputRate = 0;
 setInterval(() => { inputRate = inputCount / 2; if (wheels.size && (inputRate === 0) !== (lastRate === 0)) console.log(inputRate ? `Receiving phone input (${inputRate}/s)` : 'Phone connected but sending no input'); lastRate = inputRate; inputCount = 0; }, 2000);
 let lastRate = -1;
 function broadcast(set, msg, binary) { const s = binary ? msg : typeof msg === 'string' ? msg : JSON.stringify(msg); for (const c of set) if (c.readyState === 1 && !(binary && c.bufferedAmount > 400000)) c.send(s, { binary: !!binary }); }
-function phonesChanged() { broadcast(games, { t: 'phones', n: wheels.size }); broadcast(wheels, { t: 'games', n: games.size }); }
+// phones identify themselves (?id=), so the game can tell a wheel phone from an AR viewer and know which one left
+function phonesChanged() { broadcast(games, { t: 'phones', n: wheels.size, ids: [...wheels].map(w => w.phoneId) }); broadcast(wheels, { t: 'games', n: games.size }); }
 function attach(server) {
   const wss = new WebSocketServer({ server, path: '/ws' });
   // keep connections alive through phone hotspots and NAT that drop quiet sockets
   setInterval(() => { for (const c of wss.clients) { if (!c.isAlive) { c.terminate(); continue; } c.isAlive = false; try { c.ping(); } catch (e) {} } }, 15000);
   wss.on('connection', (ws, req) => {
-    const role = new URL(req.url, 'http://x').searchParams.get('role') === 'wheel' ? 'wheel' : 'game';
+    const q = new URL(req.url, 'http://x').searchParams, role = q.get('role') === 'wheel' ? 'wheel' : 'game';
+    ws.phoneId = (q.get('id') || 'phone').slice(0, 24);
     const set = role === 'wheel' ? wheels : games, other = role === 'wheel' ? games : wheels;
     set.add(ws); phonesChanged();
     if (role === 'game') console.log(`Game connected (${games.size})`);
@@ -107,7 +109,7 @@ function attach(server) {
     ws.on('message', (data, isBinary) => { if (role === 'wheel') inputCount++; if (isBinary) broadcast(other, data, true); else broadcast(other, data.toString()); });
     const born = Date.now(), who = req.socket.remoteAddress;
     ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true; });
-    ws.on('close', (code) => { set.delete(ws); phonesChanged(); if (role === 'wheel') console.log(`Phone wheel disconnected (${wheels.size}) from ${who} after ${((Date.now() - born) / 1000).toFixed(1)} s, code ${code}`); });
+    ws.on('close', (code) => { set.delete(ws); if (role === 'wheel') broadcast(games, { t: 'bye', id: ws.phoneId }); phonesChanged(); if (role === 'wheel') console.log(`Phone wheel disconnected (${wheels.size}) from ${who} after ${((Date.now() - born) / 1000).toFixed(1)} s, code ${code}`); });
   });
 }
 
