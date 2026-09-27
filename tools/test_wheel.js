@@ -47,10 +47,12 @@ function fixture(options = {}) {
   };
   const localStorage = {getItem() { return null; }, setItem() {}};
   const memory = new WebAssembly.Memory({initial: 32});
-  const found = 640 * 480 * 4, hom = found + 64;
+  const found = 640 * 480 * 4, hom = found + 64, cands = hom + 128, near = cands + 512, fitIn = near + 64, fitOut = fitIn + 2048;
   const phx = {
     memory, markers_frame: () => 0, markers_found: () => found, markers_hom: () => hom,
     markers_find: () => options.markerMask || 0, markers_homography: () => 0,
+    markers_cands: () => cands, markers_find_near: () => 0, markers_near: () => near,
+    markers_fit: () => 0, markers_fit_in: () => fitIn, markers_fit_out: () => fitOut,
   };
   new Float64Array(memory.buffer, found, 8).set([100, 80, 540, 80, 540, 280, 100, 280]);
   class Socket {
@@ -192,6 +194,16 @@ async function main() {
   acquired.element('cam').videoWidth = 1000; acquired.element('cam').videoHeight = 1000;
   acquired.frame(1200, 1.16);
   assert(acquired.context.__simar.grab.width * acquired.context.__simar.grab.height <= 640 * 480, 'Square video capture fits the detector buffer');
+
+  const autoDet = {markerMask: 15}, auto = fixture(autoDet);
+  await auto.flush(); auto.sockets[0].open();
+  auto.sockets[0].receive(track()); auto.sockets[0].receive(state());
+  await auto.click('bAR');
+  auto.frame(1200, 1); auto.frame(1400, 1.08);
+  assert(auto.document.body.classList.contains('sim'), 'AR switches to the SIM overlay by itself when the dots are found');
+  autoDet.markerMask = 0;
+  for (let t = 1500, v = 1.2; t <= 3600; t += 150, v += 0.05) auto.frame(t, v);
+  assert(!auto.document.body.classList.contains('sim'), 'Losing the dots for 1.5 s returns to plain AR');
 
   const failed = fixture({wasmError: true});
   await failed.flush(); failed.sockets[0].open();

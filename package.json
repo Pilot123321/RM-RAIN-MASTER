@@ -7,7 +7,7 @@
     "start": "node server.js",
     "setup:physics": "python3 -m venv .venv && .venv/bin/pip install ziglang numpy",
     "build:physics": ".venv/bin/python tools/build.py",
-    "test": ".venv/bin/python tools/build.py && .venv/bin/python tools/test_physics.py"
+    "test": ".venv/bin/python tools/build.py && .venv/bin/python tools/test_physics.py && node tools/test_wheel.js"
   },
   "keywords": [],
   "author": "",
