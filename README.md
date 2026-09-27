@@ -127,6 +127,10 @@ path; if it faces the wrong way add `public/assets/f1.json` with `{"yaw": 180}`.
   recoloured at runtime.
 - Asphalt "asphalt_track" and concrete "brushed_concrete" by Poly Haven, CC0
 - three.js r128 and its example add-ons, MIT licence (`public/vendor/`)
+- Engine sound: loops cut from real V8 recordings (`tools/engine_samples.py`, `public/assets/engine/CREDITS.txt`):
+  Maserati GranTurismo S exhaust by lmartins (freesound 465453), CC BY 4.0 (idle, low revs, free revving), and
+  Bentley Speed 8 (2003) by Edvvc on Wikimedia Commons, CC BY-SA 3.0 (full load; the derived `load.wav` keeps
+  that licence)
 
 ### Files
 

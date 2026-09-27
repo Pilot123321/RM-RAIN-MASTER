@@ -1248,22 +1248,76 @@ function setPcVisor(on){ui.pcVisor=!!on;const b=$('pcVisor');b.setAttribute('ari
   try{localStorage.setItem('lar.pcvisor',on?'1':'0');}catch(e){}}
 
 /* ================= AUDIO (optional) ================= */
+/* ================= SOUND: a real V8 =================
+   The engine is built from recordings of real V8s (tools/engine_samples.py cuts them into seamless loops, each at
+   one exact rpm; credits in assets/engine/CREDITS.txt): idle and low revs and free revving from a Maserati V8,
+   full load from the Bentley Speed 8 Le Mans car. Each loop plays at playbackRate = rpm / its recorded rpm and the
+   loops crossfade by rpm and throttle (equal power). On top: a throttle-driven tone filter, a hard cut on each
+   upshift, crackle on the overrun, wind and rain, and the nearest other car (panned, with Doppler). */
 let AC=null,eng=null;
+const ENG_LOOPS=['idle','low','high','load'];
 function audioStart(){
   try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();AC.resume();
-    if(!eng){const o1=AC.createOscillator(),o2=AC.createOscillator(),f=AC.createBiquadFilter(),g=AC.createGain();o1.type='sawtooth';o2.type='square';o2.detune.value=-1200;f.type='lowpass';f.frequency.value=1100;g.gain.value=0;
-      o1.connect(f);o2.connect(f);f.connect(g);g.connect(AC.destination);o1.start();o2.start();
-      const nb=AC.createBuffer(1,AC.sampleRate*2,AC.sampleRate),d=nb.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
-      const ns=AC.createBufferSource();ns.buffer=nb;ns.loop=true;const nf=AC.createBiquadFilter();nf.type='highpass';nf.frequency.value=1800;const ng=AC.createGain();ng.gain.value=0;ns.connect(nf);nf.connect(ng);ng.connect(AC.destination);ns.start();
-      eng={o1,o2,g,ng};}
+    if(eng)return;
+    const master=AC.createGain();master.gain.value=0.9;
+    const comp=AC.createDynamicsCompressor();comp.threshold.value=-16;comp.knee.value=12;comp.ratio.value=4;comp.attack.value=0.004;comp.release.value=0.12;
+    comp.connect(master);master.connect(AC.destination);
+    // engine bus: voices -> tone filter -> slight saturation -> level
+    const tone=AC.createBiquadFilter();tone.type='lowpass';tone.frequency.value=4000;tone.Q.value=0.6;
+    const sat=AC.createWaveShaper(),cv=new Float32Array(1024);for(let i=0;i<1024;i++){const x=i/511.5-1;cv[i]=Math.tanh(1.6*x)/Math.tanh(1.6);}sat.curve=cv;
+    const lvl=AC.createGain();lvl.gain.value=0;tone.connect(sat);sat.connect(lvl);lvl.connect(comp);
+    // wind + rain: looped noise, band-shaped
+    const nb=AC.createBuffer(1,AC.sampleRate*2,AC.sampleRate),d=nb.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+    const ns=AC.createBufferSource();ns.buffer=nb;ns.loop=true;const nf=AC.createBiquadFilter();nf.type='bandpass';nf.frequency.value=900;nf.Q.value=0.4;
+    const ng=AC.createGain();ng.gain.value=0;ns.connect(nf);nf.connect(ng);ng.connect(comp);ns.start();
+    eng={master,comp,tone,lvl,ng,nf,nb,voices:null,other:null,cut:0,gear:null,thrPrev:0,crackleUntil:0,nextPop:0};
+    Promise.all([fetch('/assets/engine/loops.json').then(r=>r.json()),
+      ...ENG_LOOPS.map(n=>fetch('/assets/engine/'+n+'.wav').then(r=>r.arrayBuffer()).then(b=>new Promise((ok,no)=>AC.decodeAudioData(b,ok,no))))])
+    .then(([meta,...bufs])=>{
+      const voice=(buf,rpm,dest)=>{const src=AC.createBufferSource();src.buffer=buf;src.loop=true;const g=AC.createGain();g.gain.value=0;src.connect(g);g.connect(dest);
+        src.start(0,Math.random()*buf.duration);return {src,g,rpm};};
+      eng.voices={};ENG_LOOPS.forEach((n,i)=>{eng.voices[n]=voice(bufs[i],meta[n].rpm,tone);});
+      // the nearest other car: its own load loop, filtered by distance, panned
+      const pan=AC.createStereoPanner?AC.createStereoPanner():null,of=AC.createBiquadFilter();of.type='lowpass';of.frequency.value=2500;
+      const ov=voice(bufs[3],meta.load.rpm,of);if(pan){of.connect(pan);pan.connect(comp);}else of.connect(comp);
+      eng.other={v:ov,pan,f:of};
+    }).catch(e=>{console.warn('engine sound unavailable',e);});
   }catch(e){AC=null;}
 }
 function beep(){if(!AC||!ui.sound)return;const t=AC.currentTime;for(let k=0;k<2;k++){const o=AC.createOscillator(),g=AC.createGain();o.type='sine';o.frequency.value=1250;g.gain.setValueAtTime(0,t+k*0.14);g.gain.linearRampToValueAtTime(0.09,t+k*0.14+0.01);g.gain.linearRampToValueAtTime(0,t+k*0.14+0.1);o.connect(g);g.connect(AC.destination);o.start(t+k*0.14);o.stop(t+k*0.14+0.12);}}
+// engine speed for cars without the full drivetrain model (autopilot, traffic): the gear from speed, rpm within it
+const GEAR_V=[0,22,33,43,52,61,70,78,99];
+function rpmFromSpeed(v){let gi=1;while(gi<GEAR_V.length-1&&v>GEAR_V[gi])gi++;const f=clamp((v-GEAR_V[gi-1])/(GEAR_V[gi]-GEAR_V[gi-1]),0,1);return {rpm:4200+(gi===1?f*7000:3600+f*3800),gear:gi};}
+// one short exhaust pop (unburnt fuel on the overrun): a burst of band-passed noise
+function pop(t,amp){const s=AC.createBufferSource();s.buffer=eng.nb;const f=AC.createBiquadFilter();f.type='bandpass';f.frequency.value=500+Math.random()*1400;f.Q.value=1.2;
+  const g=AC.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(amp,t+0.004);g.gain.exponentialRampToValueAtTime(0.001,t+0.05+Math.random()*0.04);
+  s.connect(f);f.connect(g);g.connect(eng.comp);s.start(t,Math.random()*1.5);s.stop(t+0.12);}
 function audioUpdate(w,running){
-  if(!eng||!AC)return;const on=ui.sound&&running&&!w.done,v=w.player.v,g=[0,22,33,43,52,61,70,78,99];let gi=1;while(gi<g.length-1&&v>g[gi])gi++;
-  const rpm=w.player.rpm?clamp(w.player.rpm/12000,0.3,1):clamp(0.45+0.55*(v-g[gi-1])/(g[gi]-g[gi-1]),0.3,1);
-  eng.o1.frequency.setTargetAtTime(160+rpm*380,AC.currentTime,0.04);eng.o2.frequency.setTargetAtTime(160+rpm*380,AC.currentTime,0.04);
-  eng.g.gain.setTargetAtTime(on?0.028:0,AC.currentTime,0.08);eng.ng.gain.setTargetAtTime(ui.sound?0.012+0.03*w.rain:0,AC.currentTime,0.2);
+  if(!eng||!AC)return;const now=AC.currentTime,on=ui.sound&&running&&!w.done,P=w.player;
+  eng.ng.gain.setTargetAtTime(ui.sound?Math.min(0.12,0.01+0.03*w.rain+0.0009*P.v*(ui.cam==='cockpit'?1:0.6)):0,now,0.2);eng.nf.frequency.setTargetAtTime(500+P.v*14,now,0.3);
+  const V=eng.voices;if(!V){eng.lvl.gain.setTargetAtTime(0,now,0.1);return;}
+  let rpm=P.rpm,gear=P.gear;if(!rpm){const e=rpmFromSpeed(P.v);rpm=e.rpm;gear=e.gear;}
+  const thr=clamp(P.thr!=null?P.thr:0.5,0,1),cut=(P.cut||0)>0;
+  // upshift: the ignition cut drops the sound for a moment, then it comes back lower
+  if(gear!=null&&eng.gear!=null&&gear>eng.gear)eng.cut=now+0.07;eng.gear=gear;
+  // crossfade weights: idle -> low -> (load | high), load by throttle
+  const R=[V.idle.rpm,V.low.rpm,(V.load.rpm+V.high.rpm)/2],ep=x=>Math.sqrt(clamp(x,0,1));
+  let wi=0,wl=0,wu=0;if(rpm<=R[0])wi=1;else if(rpm<R[1]){const k=(rpm-R[0])/(R[1]-R[0]);wi=ep(1-k);wl=ep(k);}else if(rpm<R[2]){const k=(rpm-R[1])/(R[2]-R[1]);wl=ep(1-k);wu=ep(k);}else wu=1;
+  const load=Math.pow(thr,0.7),mix={idle:wi,low:wl,load:wu*ep(load),high:wu*ep(1-load)*0.9};
+  for(const n of ENG_LOOPS){const vo=V[n];vo.src.playbackRate.setTargetAtTime(clamp(rpm/vo.rpm,0.25,3.4),now,0.025);vo.g.gain.setTargetAtTime(mix[n],now,0.05);}
+  const muted=cut||now<eng.cut;
+  eng.lvl.gain.setTargetAtTime(on?(muted?0.05:0.16+0.2*thr+0.08*clamp((rpm-4000)/7000,0,1))*(ui.cam==='cockpit'?1:0.75):0,now,muted?0.008:0.03);
+  eng.tone.frequency.setTargetAtTime(1800+thr*6500+rpm*0.25,now,0.05);
+  // overrun crackle: lifting off at high revs pops the exhaust for a while
+  if(on&&eng.thrPrev>0.5&&thr<0.1&&rpm>7000)eng.crackleUntil=now+0.5+Math.random()*0.5;
+  eng.thrPrev=thr;
+  if(on&&now<eng.crackleUntil&&thr<0.15&&now>eng.nextPop){pop(now+0.01,0.12+Math.random()*0.18);eng.nextPop=now+0.03+Math.random()*0.11;}
+  // the nearest other car within 120 m
+  const O=eng.other;if(O){let best=null,bd=121;for(const c of w.traffic){const d=dSigned(P.s,c.s),r=Math.hypot(d,c.lat-P.lat);if(r<bd){bd=r;best={c,d};}}
+    if(on&&best){const c=best.c,e=rpmFromSpeed(c.v),closing=(best.d>0?P.v-c.v:c.v-P.v),dop=clamp(1+closing/343,0.8,1.25);
+      O.v.src.playbackRate.setTargetAtTime(clamp(e.rpm/O.v.rpm*dop,0.25,3.4),now,0.05);O.v.g.gain.setTargetAtTime(0.5/(1+bd/6),now,0.08);
+      O.f.frequency.setTargetAtTime(900+9000/(1+bd/10),now,0.1);if(O.pan)O.pan.pan.setTargetAtTime(clamp((c.lat-P.lat)/(Math.abs(best.d)+4),-0.9,0.9),now,0.08);}
+    else O.v.g.gain.setTargetAtTime(0,now,0.1);}
 }
 
 /* ================= UI ================= */
@@ -1849,5 +1903,5 @@ PHYS.ready.then(()=>{
   requestAnimationFrame(frame);
   remoteInit();
 });
-window.__dbg={get camera(){return camera;},worldPos,gameCamera,get cw(){return cw;},get ch(){return ch;},scene,renderer,sprayPts,PHYS,rainL,get tg(){return trackGroup;},hc,get world(){return world;},ui,REMOTE,kap:s=>sampleArr(KC,s),get streaks(){return STREAKS;},MATS,get pg(){return playerGLB;},get glb(){return CAR_GLB;}};
+window.__dbg={get eng(){return eng;},get AC(){return AC;},get camera(){return camera;},worldPos,gameCamera,get cw(){return cw;},get ch(){return ch;},scene,renderer,sprayPts,PHYS,rainL,get tg(){return trackGroup;},hc,get world(){return world;},ui,REMOTE,kap:s=>sampleArr(KC,s),get streaks(){return STREAKS;},MATS,get pg(){return playerGLB;},get glb(){return CAR_GLB;}};
 })();
