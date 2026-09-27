@@ -1482,7 +1482,13 @@ function remotePanel(){
   st.classList.toggle('ok',ok&&(fresh||!wh));
 }
 async function remoteInit(){
-  let info;try{const r=await fetch('/info',{cache:'no-store'});if(!r.ok)return;info=await r.json();}catch(e){return;}
+  // retried: right after a deploy the first request can hit a cold or switching function, and giving up then hid
+  // the Phone tab for the whole visit. Any non-local host is the website, which always pairs through the cloud relay.
+  let info=null;
+  for(let i=0;i<5&&!info;i++){try{const r=await fetch('/info',{cache:'no-store'});if(r.ok)info=await r.json();}catch(e){}if(!info)await new Promise(r=>setTimeout(r,600*(i+1)));}
+  const local=/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  if(!info&&!local)info={app:'look-ahead-radar',cloud:true};
+  if(!info)return;
   if(!info||info.app!=='look-ahead-radar'||info.remote)return;   // opened from another computer: no phone link
   REMOTE.live=true;$('phonePanel').hidden=false;$('tabPhone').hidden=false;
   // cloud site: a private room code instead of the LAN address. It stays in this browser so the phone stays paired.
