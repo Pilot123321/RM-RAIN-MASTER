@@ -1580,8 +1580,8 @@ function tcPaint(){const cr=glc.getBoundingClientRect(),bits=tcBits(),prevA=rend
   renderer.setScissorTest(false);renderer.setClearColor(prev,prevA);}
 function tcGeom(){const r=stage.getBoundingClientRect(),a=TC[0].getBoundingClientRect(),b=TC[TC.length-1].getBoundingClientRect();
   return [r2(a.left+a.width/2-r.left),r2(a.top+a.height/2-r.top),r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top),r2(a.width),TC.length];}
-// the dots show while a phone is in AR (it looks for them and switches to the sim overlay by itself) or on request
-function updateCalib(){let on=calibKey;for(const d of REMOTE.dev.values())if(d.sim||d.ar)on=true;document.body.classList.toggle('calib-on',on);
+// the dots show while a phone asks for them (it is calibrating, or in SIM), or on request (Dots button / K)
+function updateCalib(){let on=calibKey;for(const d of REMOTE.dev.values())if(d.sim||d.dots)on=true;document.body.classList.toggle('calib-on',on);
   const b=$('calibBtn');b.setAttribute('aria-pressed',on?'true':'false');b.querySelector('b').textContent=on?'On':'Off';}
 $('calibBtn').addEventListener('click',e=>{calibKey=!calibKey;updateCalib();e.currentTarget.blur();});
 // the edge dots: [x, y, colour class] each, in stage pixels
@@ -1631,7 +1631,7 @@ async function remoteInit(){
         if(m.n>0&&was===0&&REMOTE.gone){clearTimeout(REMOTE.gone);REMOTE.gone=0;}  // quick reconnect: nothing to announce
         else if(m.n>0&&was===0){if(!running){ui.driver='drive';ui.steer='full';syncControls();applyLive();}toast('<b class="info">Phone wheel linked</b>Full steering: tilt to turn the wheels. Traction and stability control are on.');}
         if(m.n===0&&was>0){clearTimeout(REMOTE.gone);REMOTE.gone=setTimeout(()=>{REMOTE.gone=0;if(!REMOTE.phones)toast('<b class="info">Phone wheel disconnected</b>Keyboard controls still work.');},4000);}}
-      else if(m.t==='cmd'){if(m.c==='start'&&!running)startRun();else if(m.c==='stop'&&running)stopRun();else if(m.c==='drop')dropHazard();else if(m.c==='ar'){phoneDev(m.id).ar=!!m.on;phoneRoles();updateCalib();}else if(m.c==='sim'){phoneDev(m.id).sim=!!m.on;updateCalib();}else if(m.c==='cam'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}}};
+      else if(m.t==='cmd'){if(m.c==='start'&&!running)startRun();else if(m.c==='stop'&&running)stopRun();else if(m.c==='drop')dropHazard();else if(m.c==='ar'){phoneDev(m.id).ar=!!m.on;phoneRoles();updateCalib();}else if(m.c==='sim'){phoneDev(m.id).sim=!!m.on;updateCalib();}else if(m.c==='dots'){phoneDev(m.id).dots=!!m.on;updateCalib();}else if(m.c==='cam'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}}};
     // the cloud relay recycles connections every few minutes: only count the phones as gone if it stays down
     ws.onclose=()=>{clearTimeout(lost);lost=setTimeout(()=>{REMOTE.phones=0;REMOTE.dev.clear();phoneRoles();updateCalib();},info.cloud?5000:0);setTimeout(connect,info.cloud?300:1000);};};
   connect();

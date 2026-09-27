@@ -41,7 +41,7 @@ function connect(){
 let sent=0;
 function hello(){send({t:'hello',w:innerWidth,h:innerHeight,dpr:devicePixelRatio||1,ar:arOn,sim:!!S.sim});
   // Replay modes both after a phone reconnect and after the game page reloads.
-  send({t:'cmd',c:'ar',on:arOn});send({t:'cmd',c:'sim',on:!!S.sim});}
+  send({t:'cmd',c:'ar',on:arOn});send({t:'cmd',c:'sim',on:!!S.sim});send({t:'cmd',c:'dots',on:!!S.dots});}
 addEventListener('resize',()=>setTimeout(hello,200));
 function status(){const open=ws&&ws.readyState===1,ok=open&&S.games>0;$('dot').classList.toggle('ok',ok);
   $('conn').textContent=S.unpaired?'Not paired: scan the QR code on the Mac again':!open?'Cannot reach '+location.host:!S.games?'Server OK, open the game on the Mac':`Linked · ${arOn?(S.ap?'AR view · autopilot driving':'AR view · wheel phone drives'):'Wheel'} · HUD ${fps} fps · v8`;
@@ -85,7 +85,8 @@ function onState(m){
   const tk=m.tw!=null?m.tw/1000:m.tm;OFFS.push(Wt/1000-tk);while(OFFS.length>150)OFFS.shift();clockOff=Math.min(...OFFS);
   SNAP.push({tm:tk,w:W,fc:m.fc==null?null:m.fc});while(SNAP.length>90)SNAP.shift();}
 function sampleWorld(now){
-  if(!SNAP.length||clockOff==null)return W;const rt=now/1000-clockOff-(S.sim?SIMAR.delay/1000:0.06),L=HUD.wrapS,dS=HUD.dSigned;
+  // after calibration AR also uses the measured display + camera delay, so the HUD shows what the monitor shows
+  if(!SNAP.length||clockOff==null)return W;const rt=now/1000-clockOff-(S.sim||S.calDone?SIMAR.delay/1000:0.06),L=HUD.wrapS,dS=HUD.dSigned;
   let i=SNAP.length-1;while(i>0&&SNAP[i-1].tm>rt)i--;
   const B=SNAP[i],A=i>0?SNAP[i-1]:null;
   if(!A||rt>=B.tm){const e=S.sim?0:Math.min(0.15,Math.max(0,rt-B.tm)),P=B.w.player;   // SIM keeps camera and world from the same snapshot
@@ -112,7 +113,7 @@ async function setAR(on){
   else{arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.hidden=true;video.srcObject=null;}
   $('bAR').disabled=false;$('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bSim').hidden=!arOn;if(!arOn)setSim(false);
   // AR is a passenger view: the game's autopilot drives, so the pedals and steering are off
-  document.body.classList.toggle('ar',arOn);ORI.yaw=0;recenterAR();S.gas=S.brake=0;S.touchSteer=null;send({t:'cmd',c:'ar',on:arOn});status();}
+  document.body.classList.toggle('ar',arOn);ORI.yaw=0;recenterAR();S.gas=S.brake=0;S.touchSteer=null;send({t:'cmd',c:'ar',on:arOn});if(arOn)startCal();else{setDots(false);S.calDone=false;}status();}
 function drawHud(now){
   cx.setTransform(1,0,0,1,0,0);
   if(arOn)cx.clearRect(0,0,cv.width,cv.height);else{cx.fillStyle='#000';cx.fillRect(0,0,cv.width,cv.height);}
@@ -123,6 +124,11 @@ function drawHud(now){
   else if(arOn&&!S.simBlock&&now-SIMAR.t>=120){simCapture(now);   // AR keeps looking for the sim's dots
     if(SIMAR.tracker.ready(now)){S.simAuto=true;setSim(true,true);}}
   if(arOn&&S.sim&&S.simAuto){if(SIMAR.tracker.ready(now))SIMAR.lastLock=now;else if(now-(SIMAR.lastLock||now)>1500){S.simAuto=false;setSim(false);}}
+  // Calibration done: the screen was locked long enough to settle the alignment (pitch, heading, field of view,
+  // lens) and the display delay. Then the sim hides its dots and the phone carries on in aligned AR on its motion
+  // sensors. Calibrate (or the SIM button) brings the dots back.
+  if(arOn&&S.sim&&S.simAuto&&S.dots&&SIMAR.model&&SIMAR.model.n>=8&&SIMAR.tracker.ready(now)&&(SIMAR.alignN||0)>=30&&((SIMAR.syncN||0)>=8||now-(S.calStart||0)>6000)){
+    S.calDone=true;S.simAuto=false;S.simBlock=true;setSim(false);setDots(false);saveCal();recFlash('Calibrated · dots hidden');}
   const view=(arOn&&S.sim&&simSnap(now))||sampleWorld(arOn&&S.sim&&SIMAR.frameAt?SIMAR.frameAt:now);
   if(view.hazards&&view.near)view.near=view.hazards[view.hazards.indexOf(view.near)]||view.near;
   HUD.setWorld(view);window.__view=view;   // for debugging from the browser console
@@ -285,8 +291,12 @@ $('bSetup').onclick=()=>{const open=$('bLock').hidden;document.querySelectorAll(
 //   AR:    straight ahead = where the phone points now; old manual offsets are cleared; the sim's dots are looked
 //          for again (SIM comes on by itself when they are seen), which relearns the lens and the field of view
 //   SIM:   the screen is reacquired and the display + camera delay is relearnt from the frame numbers
+// the sim shows its dots only while this phone asks for them (calibrating, or SIM forced on)
+function setDots(on){on=!!on;if(!!S.dots===on)return;S.dots=on;send({t:'cmd',c:'dots',on});}
+function startCal(){S.calDone=false;S.calStart=performance.now();SIMAR.alignN=0;setDots(true);}
 function calibrate(){
   if(!arOn){recenter();recFlash('Centred');return;}
+  startCal();
   // pointing at the middle of the sim now: its centre is straight ahead at the sim camera's pitch (refined by the
   // dots as soon as they are seen)
   recenterAR();const r=arPoseRaw();CAL.pitchOff=simPitch()-r.pitch;CAL.yawOff=0;saveCal();
@@ -320,7 +330,7 @@ function setSim(on,keepLock){on=!!on&&arOn;if(!!S.sim===on)return;S.sim=on;if(ke
   send({t:'cmd',c:'sim',on});}
 // SIM comes on by itself when the camera finds the dots; the button still forces it on, or off (and then stays off
 // until pressed again)
-$('bSim').onclick=()=>{if(S.sim){S.simBlock=true;S.simAuto=false;setSim(false);}else{S.simBlock=false;S.simAuto=false;setSim(true);}};
+$('bSim').onclick=()=>{if(S.sim){S.simBlock=true;S.simAuto=false;setSim(false);setDots(false);}else{S.simBlock=false;S.simAuto=false;setDots(true);setSim(true);}};
 window.__simar=SIMAR;   // for debugging from the browser console
 function simCapture(now){
   if(video.readyState<2||!video.videoWidth||!video.videoHeight||now-SIMAR.t<30)return;
