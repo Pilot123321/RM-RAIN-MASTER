@@ -5,3 +5,5 @@ server.log
 .venv/
 build/
 __pycache__/
+.vercel
+public/hud.js

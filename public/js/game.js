@@ -1463,10 +1463,17 @@ async function remoteInit(){
   let info;try{const r=await fetch('/info',{cache:'no-store'});if(!r.ok)return;info=await r.json();}catch(e){return;}
   if(!info||info.app!=='look-ahead-radar'||info.remote)return;   // opened from another computer: no phone link
   REMOTE.live=true;$('phonePanel').hidden=false;$('tabPhone').hidden=false;
-  $('qr').src='/qr.svg?u='+encodeURIComponent(info.lan);$('urlLan').textContent=info.lan;$('urlUsb').textContent=info.usb;
+  // cloud site: a private room code instead of the LAN address. It stays in this browser so the phone stays paired.
+  let room='';if(info.cloud){try{room=localStorage.getItem('lar.room')||'';}catch(e){}
+    if(!/^[A-Za-z0-9_-]{16}$/.test(room)){const b=crypto.getRandomValues(new Uint8Array(12));room=btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_');try{localStorage.setItem('lar.room',room);}catch(e){}}
+    info.lan=location.origin+'/wheel?k='+room;$('lanH').textContent='Open on the phone (any network)';
+    $('lanNote').textContent='The link holds a private room code. Anyone with it can join your session, so keep it to yourself.';$('usbRow').hidden=true;}
+  $('qr').src='/qr.svg?u='+encodeURIComponent(info.lan);$('urlLan').textContent=info.lan;$('urlUsb').textContent=info.usb||'';
   const adb=()=>fetch('/info',{cache:'no-store'}).then(r=>r.json()).then(i=>{$('usbState').textContent=i.adb==='ready'?'USB link is ready. Open the address above in Chrome on the phone.':i.adb==='no device'?'No phone on USB. Turn on USB debugging and plug it in, or use Wi-Fi.':i.adb==='not found'?'adb is not installed, so use Wi-Fi.':'adb reverse failed. Unplug and replug the phone.';}).catch(()=>{});
-  adb();setInterval(adb,4000);
-  const connect=()=>{const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=game');REMOTE.ws=ws;
+  if(!info.cloud){adb();setInterval(adb,4000);}
+  let lost=0;
+  const connect=()=>{const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=game'+(room?'&k='+room:''));REMOTE.ws=ws;
+    ws.onopen=()=>clearTimeout(lost);
     ws.onmessage=e=>{let m;try{m=JSON.parse(e.data);}catch(_){return;}
       if(m.t==='hello'){sendTrack();}
       else if(m.t==='in'){const d=phoneDev(m.id);d.steer=+m.s||0;d.gas=+m.g||0;d.brake=+m.b||0;d.t=performance.now();
@@ -1475,10 +1482,12 @@ async function remoteInit(){
       else if(m.t==='phones'){const was=REMOTE.phones;REMOTE.phones=m.n;
         if(m.ids)for(const id of [...REMOTE.dev.keys()])if(!m.ids.includes(id))REMOTE.dev.delete(id);phoneRoles();
         if(m.n>was)sendTrack();
-        if(m.n>0&&was===0){if(!running){ui.driver='drive';ui.steer='full';syncControls();applyLive();}toast('<b class="info">Phone wheel linked</b>Full steering: tilt to turn the wheels. Traction and stability control are on.');}
-        if(m.n===0&&was>0){toast('<b class="info">Phone wheel disconnected</b>Keyboard controls still work.');}}
+        if(m.n>0&&was===0&&REMOTE.gone){clearTimeout(REMOTE.gone);REMOTE.gone=0;}  // quick reconnect: nothing to announce
+        else if(m.n>0&&was===0){if(!running){ui.driver='drive';ui.steer='full';syncControls();applyLive();}toast('<b class="info">Phone wheel linked</b>Full steering: tilt to turn the wheels. Traction and stability control are on.');}
+        if(m.n===0&&was>0){clearTimeout(REMOTE.gone);REMOTE.gone=setTimeout(()=>{REMOTE.gone=0;if(!REMOTE.phones)toast('<b class="info">Phone wheel disconnected</b>Keyboard controls still work.');},4000);}}
       else if(m.t==='cmd'){if(m.c==='start'&&!running)startRun();else if(m.c==='stop'&&running)stopRun();else if(m.c==='drop')dropHazard();else if(m.c==='ar'){phoneDev(m.id).ar=!!m.on;phoneRoles();}else if(m.c==='sim'){phoneDev(m.id).sim=!!m.on;updateCalib();}else if(m.c==='cam'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}}};
-    ws.onclose=()=>{REMOTE.phones=0;remotePanel();setTimeout(connect,1000);};};
+    // the cloud relay recycles connections every few minutes: only count the phones as gone if it stays down
+    ws.onclose=()=>{clearTimeout(lost);lost=setTimeout(()=>{REMOTE.phones=0;remotePanel();},info.cloud?5000:0);setTimeout(connect,info.cloud?300:1000);};};
   connect();
   setInterval(()=>{REMOTE.rate=(REMOTE.n||0);REMOTE.n=0;remotePanel();},1000);
   setInterval(()=>{const w=world;if(!w||!REMOTE.phones)return;const P=w.player,nh=w.near&&w.dNear<RANGE&&w.opts.hud?w.near:null;

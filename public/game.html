@@ -98,8 +98,8 @@
       <div class="ph-info">
         <p class="ph-status" id="phStatus">Waiting for a phone</p>
         <dl class="ph-urls">
-          <div><dt>Over Wi-Fi (same network)</dt><dd id="urlLan">—</dd><dd><small>The phone warns about the certificate once: tap Advanced, then Proceed. The gyro needs https.</small></dd></div>
-          <div><dt>Over USB cable</dt><dd id="urlUsb">—</dd><dd><small id="usbState">Turn on USB debugging on the phone and plug it in. The server runs adb reverse for you.</small></dd></div>
+          <div><dt id="lanH">Over Wi-Fi (same network)</dt><dd id="urlLan">—</dd><dd><small id="lanNote">The phone warns about the certificate once: tap Advanced, then Proceed. The gyro needs https.</small></dd></div>
+          <div id="usbRow"><dt>Over USB cable</dt><dd id="urlUsb">—</dd><dd><small id="usbState">Turn on USB debugging on the phone and plug it in. The server runs adb reverse for you.</small></dd></div>
         </dl>
       </div>
       <div class="ph-live" aria-live="polite">

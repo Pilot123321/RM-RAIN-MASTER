@@ -13,6 +13,7 @@ const { execFile, execFileSync } = require('child_process');
 const { WebSocketServer } = require('ws');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
+const buildHud = require('./tools/hud.js');
 
 const HTTP_PORT = +process.env.PORT || 8080;
 const HTTPS_PORT = +process.env.HTTPS_PORT || 8443;
@@ -71,21 +72,7 @@ async function handler(req, res) {
       res.writeHead(200, { 'content-type': TYPES['.html'], 'cache-control': 'no-store' }); return res.end(fs.readFileSync(path.join(PUB, 'wheel.html')));
     }
     if (u.pathname === '/hud.js') {
-      // the phone reuses the game's own HUD drawing code: every /*HUD>*/ ... /*<HUD*/ block in js/game.js
-      const src = fs.readFileSync(path.join(PUB, 'js', 'game.js'), 'utf8');
-      const parts = [...src.matchAll(/\/\*HUD>\*\/([\s\S]*?)\/\*<HUD\*\//g)].map(m => m[1]);
-      const js = `window.makeHUD=function(){
-let N=1,L=1,DS=1,PX,PZ,TX,TZ,H,SL,LATRL=null,VPROF=null,WGL=null,WGR=null,CORNERS=[],world=null,cw=800,ch=400;
-const HW=6,WALL=6.6,RANGE=700,TAU=Math.PI*2;let RM=false;
-const clamp=(x,a,b)=>x<a?a:x>b?b:x, lerp=(a,b,t)=>a+(b-a)*t;
-const angd=(a,b)=>{let d=a-b;while(d>Math.PI)d-=TAU;while(d<-Math.PI)d+=TAU;return d;};
-${parts.join('\n')}
-return {setCalm(v){RM=!!v;},drawNav,NAV,dSigned,wrapS,drawTracker,drawFlagChip,drawARView,drawScreen,
-  setSize(w,h){cw=w;ch=h;},
-  setTrack(t){N=t.N;L=t.L;DS=t.DS;PX=Float64Array.from(t.PX);PZ=Float64Array.from(t.PZ);TX=Float64Array.from(t.TX);TZ=Float64Array.from(t.TZ);H=Float64Array.from(t.H);SL=Float64Array.from(t.SL);LATRL=t.LAT?Float64Array.from(t.LAT):null;VPROF=t.VP?Float64Array.from(t.VP):null;CORNERS=t.C;},
-  setWorld(w){world=w;}, ready(){return !!PX;}};
-};`;
-      res.writeHead(200, { 'content-type': TYPES['.js'], 'cache-control': 'no-store' }); return res.end(js);
+      res.writeHead(200, { 'content-type': TYPES['.js'], 'cache-control': 'no-store' }); return res.end(buildHud());
     }
     if ((u.pathname === '/info' || u.pathname === '/qr.svg') && !isLocal(req.socket.remoteAddress)) {
       res.writeHead(200, { 'content-type': TYPES['.json'], 'cache-control': 'no-store' }); return res.end(JSON.stringify({ app: 'look-ahead-radar', remote: true }));
