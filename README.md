@@ -31,13 +31,12 @@ steering wheel.
   wheelspin and slides, front scrub, and a steering-weight hum that fades as the front goes light.
 
 - **Layout**: the sim fills the window; Setup, Phone and Circuit open as tabs over it. The game screen stays
-  clean (lap tracker, gear and speed); boxes, call signs and the radar live on the phone, AR and VR.
+  clean (lap tracker, gear and speed); boxes, call signs and the radar live on the phone and in AR (or on the PC with Visor HUD).
 - **2D radar**: flat, heading-up proximity radar (like iRacing's) with range rings, call signs, side bars when a car
   is alongside, and yellow/red flag sectors.
 - **Flags**: ~200 m marshal sectors go yellow around a hazard and red when it blocks the track or a marshal is
   running across; the autopilot drops to VSC pace through red.
-- **Two phones**: one as the wheel, a second as the AR/VR viewer (side-by-side stereo for a Cardboard-style
-  headset, head yaw tracked). The AR road shows the surface, barriers, centre dashes, kerbs and corner
+- **Two phones**: one as the wheel, a second as the AR viewer (head yaw tracked). The AR road shows the surface, barriers, centre dashes, kerbs and corner
   chevrons. Phones pair through the key in the QR code; phones over USB need none.
 - **SIM AR**: point the phone at the computer screen and tap SIM (in AR). The sim shows four coloured calibration
   dots (or press K); the phone finds them (C++, `physics/markers.cpp`), works out the screen's homography and draws
@@ -47,7 +46,7 @@ steering wheel.
 ### On the web
 
 The simulator runs entirely in the browser (the physics is WebAssembly), so it is also deployed as a static site on
-Vercel (`vercel.json`: serves `public/`, `/` opens the game). The phone features (wheel, AR/VR, SIM AR) need the local
+Vercel (`vercel.json`: serves `public/`, `/` opens the game). The phone features (wheel, AR, SIM AR) need the local
 server below, because they talk to the game through a WebSocket relay on your computer.
 
 ### Run it

@@ -3,7 +3,7 @@
 const $=id=>document.getElementById(id), clamp=(x,a,b)=>x<a?a:x>b?b:x;
 const angd=(a,b)=>{let d=a-b;while(d>180)d-=360;while(d<-180)d+=360;return d;};
 const iOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-let lockSaved=45,invSaved=false,ffbSaved=true,flipSaved=false,vrCamSaved=true;try{vrCamSaved=localStorage.getItem('rw.vrcam')!=='0';flipSaved=localStorage.getItem('rw.flip')==='1';lockSaved=+localStorage.getItem('rw.lock')||45;invSaved=localStorage.getItem('rw.inv2')==='1';ffbSaved=localStorage.getItem('rw.ffb')!=='0';}catch(e){}
+let lockSaved=45,invSaved=false,ffbSaved=true,flipSaved=false;try{flipSaved=localStorage.getItem('rw.flip')==='1';lockSaved=+localStorage.getItem('rw.lock')||45;invSaved=localStorage.getItem('rw.inv2')==='1';ffbSaved=localStorage.getItem('rw.ffb')!=='0';}catch(e){}
 // each phone (tab) has its own id, so the game can tell the wheel phone from the AR viewer
 // pairing key from the QR code / link (kept for this tab, so a reload without it still works)
 let PAIR=new URLSearchParams(location.search).get('k')||'';try{if(PAIR)sessionStorage.setItem('rw.k',PAIR);else PAIR=sessionStorage.getItem('rw.k')||'';}catch(e){}
@@ -12,7 +12,7 @@ if(!PID){PID=Math.random().toString(36).slice(2,10);try{sessionStorage.setItem('
 let CAL={pitchOff:0,hfov:66,camH:1.05,yawOff:0};try{Object.assign(CAL,JSON.parse(localStorage.getItem('rw.arcal2')||'{}'));}catch(e){}
 for(const [key,lo,hi,def] of [['pitchOff',-0.6,0.6,0],['hfov',35,110,66],['camH',0.2,3,1.05],['yawOff',-Math.PI,Math.PI,0]])CAL[key]=Number.isFinite(CAL[key])?clamp(CAL[key],lo,hi):def;
 function saveCal(){try{localStorage.setItem('rw.arcal2',JSON.stringify(CAL));}catch(e){}}
-const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,quarter:null,trim:0,farSince:0,lock:lockSaved,inv:invSaved,ffb:ffbSaved,yawInv:flipSaved,vr:false,vrCam:vrCamSaved,touchSteer:null,games:0,running:false,alert:0};
+const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,quarter:null,trim:0,farSince:0,lock:lockSaved,inv:invSaved,ffb:ffbSaved,yawInv:flipSaved,touchSteer:null,games:0,running:false,alert:0};
 
 // ---- connection
 let ws=null;
@@ -118,7 +118,7 @@ async function setAR(on){
     catch(e){arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.srcObject=null;video.hidden=true;
       cameraError=!window.isSecureContext?'The camera needs the https:// address or the USB address.':'Camera access was refused or is not available. Tap AR to retry.';}}
   else{arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.hidden=true;video.srcObject=null;}
-  $('bAR').disabled=false;$('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bCal').hidden=!arOn;$('bVR').hidden=!arOn;$('bSim').hidden=!arOn;if(!arOn){setCalibration(false);setVR(false);setSim(false);}
+  $('bAR').disabled=false;$('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bCal').hidden=!arOn;$('bSim').hidden=!arOn;if(!arOn){setCalibration(false);setSim(false);}
   // AR is a passenger view: the game's autopilot drives, so the pedals and steering are off
   document.body.classList.toggle('ar',arOn);$('bCenter').textContent=arOn?'Recenter':'Center';ORI.yaw=0;recenterAR();S.gas=S.brake=0;S.touchSteer=null;send({t:'cmd',c:'ar',on:arOn});status();}
 function drawHud(now){
@@ -133,21 +133,7 @@ function drawHud(now){
   HUD.setWorld(view);window.__view=view;   // for debugging from the browser console
   const H=cv.height,Wd=cv.width,u=H/420;
   if(arOn&&S.sim){simFrame(view,now,dt,Wd,H,u);}
-  else if(arOn&&S.vr){
-    // VR headset: side-by-side stereo, one half per eye, eyes 64 mm apart, 90 degrees per eye for the lenses.
-    // The camera (if on) is shown in both halves; the HUD sits at screen depth in each eye.
-    const half=Wd/2,uu=u*0.8,pose=arPose();
-    for(const [i,ex] of [[0,-0.032],[1,0.032]]){
-      cx.save();cx.beginPath();cx.rect(i*half,0,half,H);cx.clip();cx.translate(i*half,0);
-      cx.fillStyle='#000';cx.fillRect(0,0,half,H);
-      if(S.vrCam&&video.readyState>=2&&video.videoWidth){const vw=video.videoWidth,vh=video.videoHeight,k=Math.max(half/vw,H/vh);cx.globalAlpha=0.9;cx.drawImage(video,(half-vw*k)/2,(H-vh*k)/2,vw*k,vh*k);cx.globalAlpha=1;}
-      HUD.drawARView(cx,view,now/1000,uu,half,H,{pitch:pose.pitch,roll:pose.roll,hfov:90,camH:CAL.camH,yawOff:pose.yaw,rawYaw:true,vw:0,vh:0,eyeX:ex});
-      const bw=half*0.62,th=H*0.12,bx=(half-bw)/2,ty=H*0.1;
-      cx.fillStyle='rgba(0,0,0,.4)';cx.fillRect(bx,ty-3*u,bw,th+6*u);HUD.drawTracker(cx,view,bx,ty,bw,th,uu,true);
-      HUD.drawFlagChip(cx,view,view.player.s,half/2-50*uu,ty+th+10*u,uu);
-      cx.restore();}
-    cx.fillStyle='#000';cx.fillRect(Wd/2-1,0,2,H);
-  } else if(arOn){
+  else if(arOn){
     const uu=u*1.05,flash=true;
     const pose=arPose(),cam={pitch:pose.pitch,roll:pose.roll,hfov:CAL.hfov,camH:CAL.camH,yawOff:pose.yaw,rawYaw:true,vw:video.videoWidth||0,vh:video.videoHeight||0};
     const A=HUD.drawARView(cx,view,now/1000,uu,Wd,H,cam);
@@ -278,8 +264,8 @@ $('bAR').onclick=()=>setAR(!arOn);
 $('bSetup').onclick=()=>{const open=$('bLock').hidden;document.querySelectorAll('.more').forEach(b=>b.hidden=!open);$('bSetup').setAttribute('aria-pressed',open?'true':'false');};
 function setCalibration(on){calOn=!!on;calDrag=null;$('bCal').setAttribute('aria-pressed',calOn?'true':'false');$('bCal').textContent=calOn?'Done':S.sim?'Recalibrate':'Calibrate';}
 $('bCal').onclick=()=>{if(S.sim){resetSim();$('simControls').hidden=!$('simControls').hidden;}else setCalibration(!calOn);};
-function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttribute('aria-pressed',S.inv?'true':'false');$('bFfb').setAttribute('aria-pressed',S.ffb?'true':'false');$('bFlip').setAttribute('aria-pressed',S.yawInv?'true':'false');$('bVRCam').setAttribute('aria-pressed',S.vrCam?'true':'false');
-  try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv2',S.inv?'1':'0');localStorage.setItem('rw.ffb',S.ffb?'1':'0');localStorage.setItem('rw.flip',S.yawInv?'1':'0');localStorage.setItem('rw.vrcam',S.vrCam?'1':'0');}catch(e){}}
+function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttribute('aria-pressed',S.inv?'true':'false');$('bFfb').setAttribute('aria-pressed',S.ffb?'true':'false');$('bFlip').setAttribute('aria-pressed',S.yawInv?'true':'false');
+  try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv2',S.inv?'1':'0');localStorage.setItem('rw.ffb',S.ffb?'1':'0');localStorage.setItem('rw.flip',S.yawInv?'1':'0');}catch(e){}}
 $('bLock').onclick=()=>{S.lock=S.lock===30?45:S.lock===45?70:30;syncOpts();};
 $('bFfb').onclick=()=>{S.ffb=!S.ffb;if(!S.ffb&&navigator.vibrate)navigator.vibrate(0);syncOpts();};
 $('bFlip').onclick=()=>{S.yawInv=!S.yawInv;recenterAR();syncOpts();};
@@ -302,7 +288,7 @@ fetch('/physics.wasm').then(r=>{if(!r.ok)throw new Error('Detector download fail
 function resetSim(){SIMAR.tracker.reset();SIMAR.t=-Infinity;SIMAR.frameAt=0;SIMAR.videoTime=-1;SIMAR.geometry='';}
 function setSim(on){on=!!on&&arOn;if(!!S.sim===on)return;S.sim=on;resetSim();setCalibration(false);$('simControls').hidden=true;
   document.body.classList.toggle('sim',on);$('bSim').setAttribute('aria-pressed',on?'true':'false');$('bCenter').textContent=on?'Reacquire':arOn?'Recenter':'Center';
-  if(on)setVR(false);send({t:'cmd',c:'sim',on});}
+  send({t:'cmd',c:'sim',on});}
 $('bSim').onclick=()=>setSim(!S.sim);
 window.__simar=SIMAR;   // for debugging from the browser console
 function simCapture(now){
@@ -414,16 +400,7 @@ function simFrame(view,now,dt,Wd,H,u){
     cx.setTransform(a,b,c,dd,e,f);cx.drawImage(off,0,0);cx.restore();};
   const G=12;for(let i=0;i<G;i++)for(let j=0;j<G;j++){const x0=gw*i/G,x1=gw*(i+1)/G,y0=gh*j/G,y1=gh*(j+1)/G;tri([[x0,y0],[x1,y0],[x1,y1]]);tri([[x0,y0],[x1,y1],[x0,y1]]);}
 }
-// ---- VR headset mode (from AR): side-by-side stereo. The buttons hide inside the headset; a tap brings them back
-// for a few seconds, a double tap re-centres the view.
-let vrUiT=0;
-function setVR(on){if(on)setSim(false);S.vr=!!on;setCalibration(false);$('bCal').hidden=!arOn||S.vr;document.body.classList.toggle('vr',S.vr);$('bVR').setAttribute('aria-pressed',S.vr?'true':'false');
-  if(S.vr){recenterAR();showVrUi();try{document.documentElement.requestFullscreen({navigationUI:'hide'}).catch(()=>{});}catch(e){}try{screen.orientation.lock('landscape').catch(()=>{});}catch(e){}}}
-function showVrUi(){document.body.classList.add('vrui');clearTimeout(vrUiT);vrUiT=setTimeout(()=>document.body.classList.remove('vrui'),4000);}
-addEventListener('pointerdown',e=>{if(S.vr&&!e.target.closest('.bar'))showVrUi();},true);
-$('bVR').onclick=()=>setVR(!S.vr);
-$('bVRCam').onclick=()=>{S.vrCam=!S.vrCam;syncOpts();};
-// AR: double-tap anywhere on the view to make the way you are facing "straight ahead" (as in VR headsets)
+// AR: double-tap anywhere on the view to make the way you are facing "straight ahead"
 let lastTap=0;
 addEventListener('pointerdown',e=>{if(!arOn||calOn||e.target.closest('.bar,.sheet'))return;const now=performance.now();
   if(now-lastTap<350){recenterAR();lastTap=0;if(navigator.vibrate)navigator.vibrate(15);recFlash();}else lastTap=now;});

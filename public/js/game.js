@@ -995,7 +995,7 @@ function arBox(c,A,x,z,hx,hz,halfL,halfW,hgt,col,dashed,u,fill){
   return {x:p[0],y:top};
 }
 // drivable surface, track edges, walls and kerbs on the ground plane
-// The road as the driver would read it through AR / VR: a dark asphalt surface, barriers as low panels,
+// The road as the driver would read it through AR: a dark asphalt surface, barriers as low panels,
 // dashes along the middle that stream past with speed, bright edges, red/white kerbs, chevron boards before corners.
 function arGround(c,A,P0,u,fill){
   const proj=A.proj,s0=P0.s,ds=[];for(let d=1;d<=240;d+=d<30?1.5:d<90?3:6)ds.push(d);
@@ -1235,7 +1235,7 @@ function drawPedals(c,w,u,speed){
 function drawHUD(w,t,dt){
   hc.setTransform(dpr,0,0,dpr,0,0);hc.clearRect(0,0,cw,ch);
   const u=clamp(Math.min(cw/1100,ch/620),0.55,1.4), o=w.opts;
-  // the game screen stays clean: no boxes, no radar panel and no position tracker (the phone HUD, AR, VR and
+  // the game screen stays clean: no boxes, no radar panel and no position tracker (the phone HUD, AR and
   // SIM AR carry those); only gear and speed remain
   NAV.rects=null;$('combiner').hidden=true;
   // PC visor (toggle): the full visor HUD drawn through this frame's own camera. Off while a phone overlays the

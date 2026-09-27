@@ -152,14 +152,6 @@ async function main() {
   reconnected.receive({t: 'games', n: 1});
   assert(hasModes(reconnected, true, true), 'Game reconnect restores both AR and SIM roles');
 
-  await app.click('bVR');
-  assert.equal(app.element('bSim').getAttribute('aria-pressed'), 'false', 'VR turns off SIM');
-  assert.equal(app.element('bVR').getAttribute('aria-pressed'), 'true');
-  assert(app.document.body.classList.contains('vr'));
-  await app.click('bSim');
-  assert.equal(app.element('bVR').getAttribute('aria-pressed'), 'false', 'SIM turns off VR');
-  assert(!app.document.body.classList.contains('vr'), 'SIM leaves camera video visible');
-
   const tracker = app.context.__simar.tracker;
   const corners = [[100, 80], [540, 80], [540, 280], [100, 280]];
   tracker.update(15, corners, 1000); tracker.update(15, corners, 1010);

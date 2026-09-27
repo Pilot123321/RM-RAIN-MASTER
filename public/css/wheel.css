@@ -63,12 +63,7 @@ body.ar .pedal,body.ar #bLock,body.ar #bInv{display:none!important;}
 #recenter.show{animation:rec-show 1s ease-out;}
 @keyframes rec-show{0%{opacity:0;transform:translate(-50%,-50%) scale(.9);}15%{opacity:1;transform:translate(-50%,-50%) scale(1);}70%{opacity:1;}100%{opacity:0;}}
 
-/* VR headset mode: the canvas draws both eyes (camera included), so the live video element is hidden; the button
-   bar and status fade out and come back on a tap */
-body.vr #cam{visibility:hidden;}
-body.vr .bar,body.vr .status{opacity:0;pointer-events:none;transition:opacity .3s;}
-body.vr.vrui .bar,body.vr.vrui .status{opacity:1;pointer-events:auto;}
-/* no pedals in AR/VR: the button bar can use the full width */
+/* no pedals in AR: the button bar can use the full width */
 body.ar .bar{left:4%;right:4%;}
 /* SIM paints the sampled camera frame and its matching overlay together. */
 body.sim #cam{visibility:hidden;}

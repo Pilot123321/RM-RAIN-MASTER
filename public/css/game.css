@@ -117,7 +117,7 @@ body[data-view="setup"] .view[data-view="setup"],body[data-view="phone"] .view[d
 .pcvisor[aria-pressed="true"]{border-right-color:var(--red-hi);}
 .pcvisor[aria-pressed="true"] b{color:var(--red-hi);}
 .pcvisor:hover{background:rgb(30 30 34 / .9);}
-body.calib-on .pcvisor{bottom:96px;}
+body.calib-on .pcvisor{bottom:124px;}
 .toast{position:absolute;left:50%;top:18%;transform:translateX(-50%);max-width:min(460px,80%);padding:12px 18px;background:rgb(12 12 14 / .92);border-top:3px solid var(--red);font:14px/1.45 var(--f-ui);color:var(--ink);text-align:center;pointer-events:none;}
 .toast b{font:700 italic 22px/1.15 var(--f-ui);text-transform:uppercase;display:block;}
 .toast b.safe{color:var(--safe);} .toast b.near{color:var(--caution);} .toast b.contact{color:var(--red-hi);} .toast b.info{color:var(--caution);}
@@ -308,16 +308,17 @@ input[type=range]::-moz-range-thumb{width:12px;height:22px;border:0;border-radiu
    green top right, blue bottom right, magenta bottom left). Shown while a phone uses SIM AR, or with K. */
 .calib{display:none;position:absolute;inset:0;pointer-events:none;z-index:35;}
 body.calib-on .calib{display:block;}
-.calib i{position:absolute;width:36px;height:36px;border-radius:50%;box-shadow:0 0 0 7px #000,0 0 0 11px #fff;}
-.calib .c0{left:28px;top:28px;background:#FF1414;}
-.calib .c1{right:28px;top:28px;background:#14F014;}
-.calib .c2{right:28px;bottom:28px;background:#1446FF;}
-.calib .c3{left:28px;bottom:28px;background:#F014F0;}
+/* big dots: more pixels per dot in the camera image means a steadier, more precise centre */
+.calib i{position:absolute;width:56px;height:56px;border-radius:50%;box-shadow:0 0 0 10px #000,0 0 0 16px #fff;}
+.calib .c0{left:30px;top:30px;background:#FF1414;}
+.calib .c1{right:30px;top:30px;background:#14F014;}
+.calib .c2{right:30px;bottom:30px;background:#1446FF;}
+.calib .c3{left:30px;bottom:30px;background:#F014F0;}
 /* six more dots along the edges: with ten points the phone measures its lens bend and averages out detection noise */
 /* smaller than the corner dots, so the corner search (which prefers the biggest dot of each colour) never takes one */
-.calib i[data-c]{width:28px;height:28px;box-shadow:0 0 0 6px #000,0 0 0 9px #fff;}
-.calib .e0{left:calc(25% - 14px);top:32px;} .calib .e1{left:calc(75% - 14px);top:32px;} .calib .e2{right:32px;top:calc(50% - 14px);}
-.calib .e3{left:calc(75% - 14px);bottom:32px;} .calib .e4{left:calc(25% - 14px);bottom:32px;} .calib .e5{left:32px;top:calc(50% - 14px);}
+.calib i[data-c]{width:42px;height:42px;box-shadow:0 0 0 8px #000,0 0 0 13px #fff;}
+.calib .e0{left:calc(25% - 21px);top:37px;} .calib .e1{left:calc(75% - 21px);top:37px;} .calib .e2{right:37px;top:calc(50% - 21px);}
+.calib .e3{left:calc(75% - 21px);bottom:37px;} .calib .e4{left:calc(25% - 21px);bottom:37px;} .calib .e5{left:37px;top:calc(50% - 21px);}
 .calib .r{background:#FF1414;} .calib .g{background:#14F014;} .calib .b{background:#1446FF;} .calib .m{background:#F014F0;}
 /* visual timecode: the frame number (7-bit Gray code) as black/white cells, after a white and a black reference cell.
    The phone reads it from the camera image and draws the HUD of exactly the frame that is on the screen. */
@@ -325,5 +326,5 @@ body.calib-on .calib{display:block;}
 .calib .tc s{width:22px;height:22px;background:#000;}
 .calib .tc s:first-child,.calib .tc s.on{background:#fff;}
 /* keep the corners clear for the calibration dots: the hazard button and the status text step inward */
-body.calib-on .drop{top:96px;}
-body.calib-on .status{bottom:100px;}
+body.calib-on .drop{top:124px;}
+body.calib-on .status{bottom:124px;}
