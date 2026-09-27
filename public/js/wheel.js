@@ -10,7 +10,7 @@ let PAIR=new URLSearchParams(location.search).get('k')||'';try{if(PAIR)sessionSt
 let PID='';try{PID=sessionStorage.getItem('rw.id')||'';}catch(e){}
 if(!PID){PID=Math.random().toString(36).slice(2,10);try{sessionStorage.setItem('rw.id',PID);}catch(e){}}
 let CAL={pitchOff:0,hfov:66,camH:1.05,yawOff:0};try{Object.assign(CAL,JSON.parse(localStorage.getItem('rw.arcal2')||'{}'));}catch(e){}
-for(const [key,lo,hi,def] of [['pitchOff',-0.6,0.6,0],['hfov',35,110,66],['camH',0.2,3,1.05],['yawOff',-Math.PI,Math.PI,0]])CAL[key]=Number.isFinite(CAL[key])?clamp(CAL[key],lo,hi):def;
+for(const [key,lo,hi,def] of [['pitchOff',-0.9,0.9,0],['hfov',35,110,66],['camH',0.2,3,1.05],['yawOff',-Math.PI,Math.PI,0]])CAL[key]=Number.isFinite(CAL[key])?clamp(CAL[key],lo,hi):def;
 function saveCal(){try{localStorage.setItem('rw.arcal2',JSON.stringify(CAL));}catch(e){}}
 const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,quarter:null,trim:0,farSince:0,lock:lockSaved,inv:invSaved,ffb:ffbSaved,yawInv:flipSaved,touchSteer:null,games:0,running:false,alert:0};
 
@@ -123,7 +123,6 @@ function drawHud(now){
   else if(arOn&&!S.simBlock&&now-SIMAR.t>=120){simCapture(now);   // AR keeps looking for the sim's dots
     if(SIMAR.tracker.ready(now)){S.simAuto=true;setSim(true,true);}}
   if(arOn&&S.sim&&S.simAuto){if(SIMAR.tracker.ready(now))SIMAR.lastLock=now;else if(now-(SIMAR.lastLock||now)>1500){S.simAuto=false;setSim(false);}}
-  if(arOn&&S.sim&&SIMAR.tracker.ready(now))DO.center=true;   // looking at the sim = straight ahead when AR takes over again
   const view=(arOn&&S.sim&&simSnap(now))||sampleWorld(arOn&&S.sim&&SIMAR.frameAt?SIMAR.frameAt:now);
   if(view.hazards&&view.near)view.near=view.hazards[view.hazards.indexOf(view.near)]||view.near;
   HUD.setWorld(view);window.__view=view;   // for debugging from the browser console
@@ -198,12 +197,25 @@ function smoothQuat(q,now){
   const d=Math.abs(QF.q[0]*q[0]+QF.q[1]*q[1]+QF.q[2]*q[2]+QF.q[3]*q[3]),speed=2*Math.acos(Math.min(1,d))/dt;   // rad/s
   const tau=0.01+0.07*Math.exp(-speed/0.5);QF.q=slerp(QF.q,q,1-Math.exp(-dt/tau));return QF.q;}
 // camera pose for the AR projection: pitch (down +), roll (horizon angle), yaw (+ = looking right of straight ahead)
-function arPose(){
-  if(!DO.ok){const y=-ORI.yaw;return {pitch:CAL.pitchOff,roll:0,yaw:CAL.yawOff+y};}           // fallback: gyro yaw only
+// the phone's own pose, before the alignment offsets
+function arPoseRaw(){
+  if(!DO.ok)return {pitch:0,roll:0,yaw:-ORI.yaw};                                                // fallback: gyro yaw only
   const q=smoothQuat(devQuat(),performance.now()),f=qrot(q,[0,0,-1]),up=qrot(q,[0,1,0]),rt=qrot(q,[1,0,0]),h=Math.atan2(f[0],-f[2]);
   if(DO.center){DO.h0=h;DO.center=false;}
   let yaw=Math.atan2(Math.sin(h-DO.h0),Math.cos(h-DO.h0));if(S.yawInv)yaw=-yaw;
-  return {pitch:-Math.asin(clamp(f[1],-1,1))+CAL.pitchOff,roll:Math.atan2(rt[1],up[1]),yaw:CAL.yawOff+yaw};}
+  return {pitch:-Math.asin(clamp(f[1],-1,1)),roll:Math.atan2(rt[1],up[1]),yaw};}
+function arPose(){const r=arPoseRaw();return {pitch:r.pitch+CAL.pitchOff,roll:r.roll,yaw:CAL.yawOff+r.yaw};}
+// Align plain AR with the sim. The sim's view centre (its camera axis) is the middle of the game screen; through
+// the dot mapping we know where that is in the phone camera, i.e. at which angles (dx right, dy down) from the
+// phone's own axis. AR must then look (dx, dy) away from the sim camera's direction: yaw = -dx, pitch = sim pitch
+// - dy. The offsets that make the phone's current pose give exactly that are blended in while the screen is seen,
+// so AR's horizon and road sit where the sim's are, and stay there when the phone turns away (orientation only).
+function simPitch(){if(!W||!W.cm)return 0.035;const c=W.cm,q=[c[3],c[4],c[5],c[6]],f=qrot(q,[0,0,-1]);return -Math.asin(clamp(f[1],-1,1));}
+function alignAR(M,frameW,k){if(!W||!W.scr)return;const P=SC.project(M.H,W.scr[0]/2,W.scr[1]/2);if(!P)return;
+  const fp=(frameW/2)/Math.tan(CAL.hfov*Math.PI/360),dx=Math.atan((P[0]-M.cx)/fp),dy=Math.atan((P[1]-M.cy)/fp),r=arPoseRaw();
+  const tp=simPitch()-dy-r.pitch,ty=-dx-r.yaw,wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
+  CAL.pitchOff=clamp(CAL.pitchOff+wrap(tp-CAL.pitchOff)*k,-0.9,0.9);CAL.yawOff=wrap(CAL.yawOff+wrap(ty-CAL.yawOff)*k);
+  SIMAR.alignN=(SIMAR.alignN||0)+1;if(SIMAR.alignN%60===0)saveCal();}
 function recenterAR(){ORI.yaw=0;DO.center=true;QF.q=null;}
 function fuse(e,ax,ay,az,gm){
   const now=e.timeStamp||performance.now(),dt=ORI.t?clamp((now-ORI.t)/1000,0,0.1):0;ORI.t=now;
@@ -275,7 +287,9 @@ $('bSetup').onclick=()=>{const open=$('bLock').hidden;document.querySelectorAll(
 //   SIM:   the screen is reacquired and the display + camera delay is relearnt from the frame numbers
 function calibrate(){
   if(!arOn){recenter();recFlash('Centred');return;}
-  recenterAR();CAL.pitchOff=0;CAL.yawOff=0;saveCal();
+  // pointing at the middle of the sim now: its centre is straight ahead at the sim camera's pitch (refined by the
+  // dots as soon as they are seen)
+  recenterAR();const r=arPoseRaw();CAL.pitchOff=simPitch()-r.pitch;CAL.yawOff=0;saveCal();
   S.simBlock=false;SIMAR.syncN=0;SIMAR.tcRej=0;SIMAR.prevPts=null;resetSim();
   recFlash(S.sim?'Reacquiring the screen':'Centred · looking for the sim');}
 $('bCal').onclick=calibrate;
@@ -377,7 +391,7 @@ function fitModel(f,w,h){
   let n=pairs.length;if(!PHX.markers_fit(n,cxc,cyc,rn,SIMAR.k1,0))return;
   if(FO()[1]>4&&n>4){n=4;if(!PHX.markers_fit(4,cxc,cyc,rn,SIMAR.k1,0))return;}   // a bad edge dot: fall back to the corners
   SIMAR.model={H:Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9)),k1:SIMAR.k1,cx:cxc,cy:cyc,rn,n,rms:FO()[1],at:SIMAR.frameAt};
-  autoFov(SIMAR.model,f.width*c.scale);}
+  autoFov(SIMAR.model,f.width*c.scale);if(arOn)alignAR(SIMAR.model,f.width*c.scale,0.2);}
 // The dots also calibrate plain AR: the screen is a rectangle, so its two edge directions through the camera must
 // be perpendicular and equally scaled. With the principal point at the frame centre that fixes the focal length
 // (the standard homography-to-intrinsics constraints), i.e. the camera's real field of view, which AR then uses
