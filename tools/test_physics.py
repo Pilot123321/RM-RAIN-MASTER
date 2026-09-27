@@ -201,5 +201,25 @@ check(m > 100 and LIB.trace_method() == 0 and abs(rad.mean() - 92) < 3, f"traces
 img[:] = 255; ctypes_buf[:] = img.reshape(-1)
 check(LIB.trace_run(W, H, 0, 0, 0, 0, 60.0) == -1, "blank image: no track found")
 
+# ---------------- SIM AR calibration dots (C++) ----------------
+print("SIM AR markers (C++)")
+W, H = 320, 180; fr = np.full((H, W, 4), 20, np.uint8); fr[..., 3] = 255
+yy, xx = np.mgrid[0:H, 0:W]
+dots = [((30, 25), (240, 20, 20)), ((290, 28), (20, 230, 20)), ((285, 150), (20, 70, 240)), ((35, 152), (235, 20, 235))]
+for (cx0, cy0), col in dots:
+    fr[(xx - cx0) ** 2 + (yy - cy0) ** 2 <= 110] = (235, 235, 235, 255)  # white ring
+    fr[(xx - cx0) ** 2 + (yy - cy0) ** 2 <= 56] = (0, 0, 0, 255)          # black ring
+    fr[(xx - cx0) ** 2 + (yy - cy0) ** 2 <= 25] = col + (255,)
+fr[90:94, 60:200] = (240, 20, 20, 255)            # a red kerb stripe
+fr[60:72, 140:152] = (20, 70, 240, 255)           # a blue TecPro block
+np.ctypeslib.as_array(LIB.markers_frame(), shape=(W * H * 4,))[:] = fr.reshape(-1)
+mask = LIB.markers_find(W, H); F = np.ctypeslib.as_array(LIB.markers_found(), shape=(8,)).reshape(4, 2)
+err = max(np.hypot(F[k][0] - 0.5 - dots[k][0][0], F[k][1] - 0.5 - dots[k][0][1]) for k in range(4))
+check(mask == 15 and err < 1.0, f"finds all four dots and ignores a red stripe and a blue block (max centre error {err:.2f} px)")
+src = [0, 0, 1500, 0, 1500, 857, 0, 857]; dst = [190, 95, 1110, 60, 1150, 650, 150, 610]
+LIB.markers_homography(*src, *dst); Hm = np.ctypeslib.as_array(LIB.markers_hom(), shape=(9,)).reshape(3, 3)
+p = Hm @ np.array([750, 428.5, 1]); ref = np.linalg.solve(Hm, np.array([*dst[4:6], 1]))
+check(abs(ref[0] / ref[2] - 1500) < 1e-6 and abs(ref[1] / ref[2] - 857) < 1e-6, f"homography maps the screen corners exactly (centre -> {p[0]/p[2]:.0f}, {p[1]/p[2]:.0f})")
+
 print("\nall checks passed" if ok else "\nSOME CHECKS FAILED")
 raise SystemExit(0 if ok else 1)

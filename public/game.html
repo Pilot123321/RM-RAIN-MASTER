@@ -1,8 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="A look-ahead radar HUD for F1 in the wet: see stopped cars, marshals and hazards around blind corners before they become critical.">
+<meta name="theme-color" content="#0A0A0C">
 <title>Look-Ahead Radar</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@400;700&family=Saira+Condensed:wght@600;800&family=Titillium+Web:ital,wght@0,400;0,600;0,700;0,900;1,600;1,700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/game.css">
+<style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}</style>
+</head>
+<body>
 
 <div class="wrap">
   <header class="topbar">
@@ -22,6 +32,7 @@
     <canvas id="drops" aria-hidden="true"></canvas>
     <div class="visorframe" aria-hidden="true"></div>
     <div id="rearfx" aria-hidden="true"></div>
+    <div class="calib" aria-hidden="true"><i class="c0"></i><i class="c1"></i><i class="c2"></i><i class="c3"></i></div>
     <div id="combiner" aria-hidden="true"></div>
     <canvas id="hud"></canvas>
     <div id="visor" aria-hidden="true"></div>
@@ -170,3 +181,5 @@
 <script src="/vendor/BufferGeometryUtils.js"></script>
 <script src="/f1car.js"></script>
 <script src="/js/game.js"></script>
+</body>
+</html>

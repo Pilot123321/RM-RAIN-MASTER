@@ -41,7 +41,6 @@ function ensureCert() {
 }
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' };
-const SKELETON_HEAD = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}</style></head><body>';
 
 // Pairing: a phone on Wi-Fi must present this key (it is in the QR code and the link on the Mac), so nobody else on
 // the network can take over the wheel or watch the session. Phones over USB and the game page come in through this
@@ -65,7 +64,7 @@ async function handler(req, res) {
   const u = new URL(req.url, 'http://x');
   try {
     if (u.pathname === '/' || u.pathname === '/index.html') {
-      const body = SKELETON_HEAD + fs.readFileSync(path.join(PUB, 'game.html'), 'utf8') + '</body></html>';
+      const body = fs.readFileSync(path.join(PUB, 'game.html'));
       res.writeHead(200, { 'content-type': TYPES['.html'], 'cache-control': 'no-store' }); return res.end(body);
     }
     if (u.pathname === '/wheel') {

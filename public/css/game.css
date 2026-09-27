@@ -295,3 +295,16 @@ input[type=range]::-moz-range-thumb{width:12px;height:22px;border:0;border-radiu
 /* the glow layer only exists while a car is behind; on the phone it is not blended (blending a full-screen layer over
    live video every frame is expensive on mobile GPUs) */
 #rearfx:not(.on){display:none;}
+
+/* SIM AR calibration dots: solid, saturated discs in a black and white ring, one colour per corner (red top left,
+   green top right, blue bottom right, magenta bottom left). Shown while a phone uses SIM AR, or with K. */
+.calib{display:none;position:absolute;inset:0;pointer-events:none;z-index:35;}
+body.calib-on .calib{display:block;}
+.calib i{position:absolute;width:36px;height:36px;border-radius:50%;box-shadow:0 0 0 7px #000,0 0 0 11px #fff;}
+.calib .c0{left:28px;top:28px;background:#FF1414;}
+.calib .c1{right:28px;top:28px;background:#14F014;}
+.calib .c2{right:28px;bottom:28px;background:#1446FF;}
+.calib .c3{left:28px;bottom:28px;background:#F014F0;}
+/* keep the corners clear for the calibration dots: the hazard button and the status text step inward */
+body.calib-on .drop{top:96px;}
+body.calib-on .status{bottom:100px;}

@@ -39,7 +39,16 @@ steering wheel.
 - **Two phones**: one as the wheel, a second as the AR/VR viewer (side-by-side stereo for a Cardboard-style
   headset, head yaw tracked). The AR road shows the surface, barriers, centre dashes, kerbs and corner
   chevrons. Phones pair through the key in the QR code; phones over USB need none.
+- **SIM AR**: point the phone at the computer screen and tap SIM (in AR). The sim shows four coloured calibration
+  dots (or press K); the phone finds them (C++, `physics/markers.cpp`), works out the screen's homography and draws
+  the HUD exactly over the sim picture.
 - **Circuits from screenshots**: drop a screenshot anywhere on the page or paste it (Cmd+V).
+
+### On the web
+
+The simulator runs entirely in the browser (the physics is WebAssembly), so it is also deployed as a static site on
+Vercel (`vercel.json`: serves `public/`, `/` opens the game). The phone features (wheel, AR/VR, SIM AR) need the local
+server below, because they talk to the game through a WebSocket relay on your computer.
 
 ### Run it
 

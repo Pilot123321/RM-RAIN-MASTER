@@ -1,0 +1,4 @@
+# upload only the static site to Vercel: never certs/ (pairing key, local IP), logs, venv or sources
+/*
+!/public
+!/vercel.json

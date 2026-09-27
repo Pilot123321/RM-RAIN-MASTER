@@ -1067,21 +1067,28 @@ function drawARView(c,w,t,u,Wd,Hd,cam){
   return A;}
 // phone screen mirror: the game screen's HUD layout (target boxes, hazard brackets, nav panel, lap tracker,
 // pedals) plus the track edges, drawn from the same camera as the game's driver view, with no 3D picture
-function drawScreen(c,w,t,dt){
-  const u=clamp(Math.min(cw/1100,ch/620),0.55,1.4),A=arCamera(w,cw,ch,{pitch:0.035,hfov:2*Math.atan(Math.tan(30*Math.PI/180)*cw/ch)*180/Math.PI,camH:1.0,yawOff:0,rawYaw:true});
+// the game's actual render camera (position and quaternion from three.js, 60 degree vertical FOV): used when the
+// phone draws over the sim picture, so the overlay matches the 3D view exactly (slope, braking dip, eye offset, chase)
+function gameCamera(cm,Wd,Hd){const [px,py,pz,qx,qy,qz,qw]=cm,f=(Hd/2)/Math.tan(30*Math.PI/180),cx=Wd/2,cy=Hd/2;
+  const toCam=(x,y,z)=>{const dx=x-px,dy=y-py,dz=z-pz,ix=qw*dx-qy*dz+qz*dy,iy=qw*dy-qz*dx+qx*dz,iz=qw*dz-qx*dy+qy*dx,iw=qx*dx+qy*dy+qz*dz;   // rotate by the inverse quaternion
+    return [ix*qw+iw*qx+iy*qz-iz*qy,iy*qw+iw*qy+iz*qx-ix*qz,iz*qw+iw*qz+ix*qy-iy*qx];};
+  const projXYZ=(x,y,z)=>{const c=toCam(x,y,z),dep=-c[2];if(dep<0.3)return null;return [cx+f*c[0]/dep,cy-f*c[1]/dep,dep];};
+  return {f,proj:(s,lat,yOff)=>{const p=worldPos(s,lat);return projXYZ(p.x,p.y+yOff,p.z);}};}
+function drawScreen(c,w,t,dt,overlay){
+  const u=clamp(Math.min(cw/1100,ch/620),0.55,1.4),A=w.cm?gameCamera(w.cm,cw,ch):arCamera(w,cw,ch,{pitch:0.035,hfov:2*Math.atan(Math.tan(30*Math.PI/180)*cw/ch)*180/Math.PI,camH:1.0,yawOff:0,rawYaw:true});
   c.save();arGround(c,A,w.player,u,false);arFlags(c,w,A,w.player,u);c.restore();
   if(w.opts.hud!==false){
-    const R=navRegion(u),pd=22*u;c.save();c.translate(R.x+R.w/2,R.y+R.h/2);c.scale(R.w/2+pd,R.h/2+pd);
-    const g=c.createRadialGradient(0,0,0,0,0,1);g.addColorStop(0,'rgba(3,9,13,.5)');g.addColorStop(0.7,'rgba(3,9,13,.34)');g.addColorStop(1,'rgba(3,9,13,0)');c.fillStyle=g;c.fillRect(-1,-1,2,2);c.restore();
+    const R=navRegion(u),pd=22*u;if(!overlay){c.save();c.translate(R.x+R.w/2,R.y+R.h/2);c.scale(R.w/2+pd,R.h/2+pd);
+    const g=c.createRadialGradient(0,0,0,0,0,1);g.addColorStop(0,'rgba(3,9,13,.5)');g.addColorStop(0.7,'rgba(3,9,13,.34)');g.addColorStop(1,'rgba(3,9,13,0)');c.fillStyle=g;c.fillRect(-1,-1,2,2);c.restore();}
     drawConformal(c,w,u,A.proj,true);drawNav(c,w,t,dt,u);
-    const th=clamp(ch*0.09,40,90);c.save();c.globalAlpha=0.95;drawTracker(c,w,cw*0.05,Math.max(ch*0.1,60*u),Math.min(cw*0.56,cw-R.w-cw*0.1),th,u,RM?true:((t*3)%1)<0.6);c.restore();}
-  drawPedals(c,w,u);
+    {const th=clamp(ch*0.09,40,90);c.save();c.globalAlpha=0.95;drawTracker(c,w,cw*0.05,Math.max(ch*0.1,60*u),Math.min(cw*0.56,cw-R.w-cw*0.1),th,u,RM?true:((t*3)%1)<0.6);c.restore();}}
+  if(!overlay)drawPedals(c,w,u);
 }
 function navRegion(u){
   const w=Math.round(clamp(cw*(NAV.big?0.5:0.34),190,NAV.big?640:450)), h=Math.round(Math.min(w*1.0,ch*0.84));
   return {x:cw-w-Math.max(12,cw*0.045), y:Math.max(12,ch*0.1), w, h:Math.min(h,ch*0.78)};
 }
-function drawNav(c,w,t,dt,u,Rin){
+function drawNav(c,w,t,dt,u,Rin,fixedRange){
   const P=w.player, R=Rin||navRegion(u), hi=headerInfo(w), flash=RM?true:((t*3)%1)<0.6;
   if(!Rin)NAV.rects={panel:[R.x,R.y,R.w,R.h]};
   c.save();c.lineCap='round';c.lineJoin='round';
@@ -1089,14 +1096,14 @@ function drawNav(c,w,t,dt,u,Rin){
   // --- flat top-down radar, heading up, like a sim-racing proximity radar: your car low in the frame so more of the
   // road ahead fits, range rings from your car, everything drawn to scale, side bars when a car is alongside.
   // The range zooms in when cars are close and out at speed.
-  const bb=Math.round(R.h*0.13), mx=R.x, my=R.y, mw=R.w, mh=R.h-bb;
+  const bb=fixedRange?0:Math.round(R.h*0.13), mx=R.x, my=R.y, mw=R.w, mh=R.h-bb;
   let ahead=clamp(60+P.v*2.2,90,300);
   if(w.near&&w.dNear<300) ahead=clamp(w.dNear+40,80,320);
   let side=false; for(const tc of w.traffic){const d=dSigned(P.s,tc.s); if(d>-25&&d<40){side=true;break;}}
   if(side) ahead=Math.min(ahead,55);
   ahead*=NAV.zoom; const kk=dt>0?1-Math.exp(-dt*2.4):0;
-  NAV.cur=lerp(NAV.cur,ahead,kk);
-  const A=NAV.cur, cx=mx+mw/2, ye=my+mh*0.7, K=(ye-(my+mh*0.03))/A, minFw=-(my+mh-ye)/K, dmax=A*1.05;
+  if(!fixedRange)NAV.cur=lerp(NAV.cur,ahead,kk);
+  const A=fixedRange||NAV.cur, cx=mx+mw/2, ye=my+mh*0.7, K=(ye-(my+mh*0.03))/A, minFw=-(my+mh-ye)/K, dmax=A*1.05;
   const E=egoPose(w), rx=-E.fz, rz=E.fx;
   const loc=(x,z)=>{const dx=x-E.x,dz=z-E.z;return [dx*rx+dz*rz,dx*E.fx+dz*E.fz];};
   const pr=(rt,fw)=>[cx+rt*K,ye-fw*K];
@@ -1171,7 +1178,8 @@ function drawNav(c,w,t,dt,u,Rin){
     c.strokeStyle=colr;c.lineWidth=1.6*u;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.moveTo(a[0],a[1]-5*u);c.lineTo(a[0],a[1]+5*u);c.moveTo(b[0],b[1]-5*u);c.lineTo(b[0],b[1]+5*u);c.stroke();
     c.fillStyle=colr;c.font=`700 ${11*u}px "B612 Mono", monospace`;c.textAlign='center';c.textBaseline='alphabetic';c.fillText(gap.toFixed(1)+' M',(a[0]+b[0])/2,a[1]-9*u);}
   c.restore();
-  // --- bottom row: speed tape box, pass sign, visibility
+  // --- bottom row: pass sign, visibility, radar status (not on the compact AR radar)
+  if(!fixedRange){
   const by=R.y+R.h-bb, bh=bb*0.86, bw=Math.max(80*u,R.w*0.3);
   if(hi.kind==='haz'&&P.v>hi.h.vpass+2){const px=R.x+4*u,s=bh;c.strokeStyle=col;c.lineWidth=1.8*u;rr(c,px,by,s*0.9,s,4*u);c.stroke();
     c.fillStyle=col;c.textAlign='center';c.font=`700 ${s*0.18}px "B612 Mono", monospace`;c.fillText('PASS',px+s*0.45,by+s*0.24);c.font=`700 ${s*0.42}px "B612 Mono", monospace`;c.fillText(String(Math.round(hi.h.vpass*3.6)),px+s*0.45,by+s*0.64);}
@@ -1179,6 +1187,7 @@ function drawNav(c,w,t,dt,u,Rin){
   c.fillStyle=HC.dim;c.font=`${9*u}px "B612 Mono", monospace`;c.fillText(NAV.zoom===1?'AUTO RANGE':'RANGE ×'+(1/NAV.zoom).toFixed(1),R.x+R.w-4*u,by+bh*0.28);
   if(RD&&RD.rng){c.textAlign='center';c.fillStyle='rgba(57,230,180,.85)';c.font=`700 ${10*u}px "B612 Mono", monospace`;c.fillText(`RADAR ${Math.round(RD.rng)} M`,R.x+R.w*0.55,by+bh*0.72);
     c.fillStyle=HC.dim;c.font=`${9*u}px "B612 Mono", monospace`;c.fillText(`77 GHZ · −${RD.att.toFixed(1)} DB · ${RD.tracks.filter(T=>T.conf&&!T.barrier).length} TRK`,R.x+R.w*0.55,by+bh*0.28);}
+  }
   c.textBaseline='alphabetic';
   c.restore();
 }
@@ -1222,8 +1231,8 @@ function drawPedals(c,w,u,speed){
 function drawHUD(w,t,dt){
   hc.setTransform(dpr,0,0,dpr,0,0);hc.clearRect(0,0,cw,ch);
   const u=clamp(Math.min(cw/1100,ch/620),0.55,1.4), o=w.opts;
-  // the game screen stays clean: no car/hazard boxes and no radar panel (the phone HUD, AR and VR carry those)
-  if(o.hud){const th=clamp(ch*0.09,40,90);hc.save();hc.globalAlpha=0.95;drawTracker(hc,w,cw*0.05,Math.max(ch*0.1,60*u),Math.min(cw*0.5,700*u),th,u,RM?true:((t*3)%1)<0.6);hc.restore();}
+  // the game screen stays clean: no boxes, no radar panel and no position tracker (the phone HUD, AR, VR and
+  // SIM AR carry those); only gear and speed remain
   NAV.rects=null;$('combiner').hidden=true;
   drawPedals(hc,w,u,true);
 }
@@ -1354,6 +1363,7 @@ addEventListener('keydown',e=>{
   else if(e.code==='Escape'&&running){stopRun();}
   else if(e.code==='KeyC'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}
   else if(e.code==='KeyN'){NAV.big=!NAV.big;}
+  else if(e.code==='KeyK'){calibKey=!calibKey;updateCalib();}
   else if(e.code==='KeyX'){dropHazard();}
   else if(e.code==='Equal'||e.code==='NumpadAdd'){NAV.zoom=clamp(NAV.zoom/1.3,0.4,3);}
   else if(e.code==='Minus'||e.code==='NumpadSubtract'){NAV.zoom=clamp(NAV.zoom*1.3,0.4,3);}
@@ -1409,7 +1419,7 @@ function phoneFrame(w,t,dt,now){
     drive?clamp((-Math.min(P.kf||0,P.kr||0)-0.1)*3,0,1):0,
     drive?clamp(((P.kr||0)-0.12)*3,0,1):0,
     w.spray||0, drive?(P.aqua||0):0].map(r2);
-  remoteSend({t:'w',tm:r2(t),fg:w.flags?[r2(w.secLen)].concat(Array.from(w.flags)):null,dr:drive?1:0,hd:w.opts.hud?1:0,bh:w.behind?[r2(w.behind.d),w.behind.side,r2(w.behind.cl)]:null,scr:[Math.round(cw),Math.round(ch)],sp:r2(w.spray||0),rd,ffb,
+  remoteSend({t:'w',tm:r2(t),tw:Math.round(now),cm:[r4(camera.position.x),r4(camera.position.y),r4(camera.position.z),r4(camera.quaternion.x),r4(camera.quaternion.y),r4(camera.quaternion.z),r4(camera.quaternion.w)],mk:calibOn()?calibCentres():null,fg:w.flags?[r2(w.secLen)].concat(Array.from(w.flags)):null,dr:drive?1:0,hd:w.opts.hud?1:0,bh:w.behind?[r2(w.behind.d),w.behind.side,r2(w.behind.cl)]:null,scr:[Math.round(cw),Math.round(ch)],sp:r2(w.spray||0),rd,ffb,
     p:[r2(P.s),r2(P.lat),r4(P.psi||0),r2(P.latV||0),r2(P.slideV||0),r2(P.v),r2(P.vx==null?P.v:P.vx),P.lapc||0,r2(P.brk||0),r2(P.thr||0),P.rev?-2:P.gear==null?-1:P.gear,Math.round(P.rpm||0),r4(P.beta||0),r4(P.steer||0)],
     tr:w.traffic.map(c=>[r2(c.s),r2(c.lat),r2(c.latV),r2(c.v),c.vis?1:0,c.closing?1:0,c.lapc||0]),
     hz:w.hazards.map(h=>[h.type,r2(h.s),r2(h.lat),r2(h.yaw||0),h.halfLen,h.halfW,h.vis?1:0,h.gone?1:0,r2(h.avoid),h.vpass,h.label]),
@@ -1433,6 +1443,14 @@ function phoneAR(on){if(!!REMOTE.ar===on)return;REMOTE.ar=on;
     if(was==='model'&&ui.driver==='drive'){const P=w.player;Object.assign(P,{vx:P.v,vy:0,r:0,psi:0,delta:0,steer:0,wf:null});}}
   syncControls();applyLive();
   toast(on?'<b class="info">Phone AR · autopilot driving</b>The phone shows what the driver would see. Link a second phone as the wheel, or turn AR off, to drive.':`<b class="info">Phone AR off</b>${ui.driver==='drive'?'You are driving again.':'Autopilot keeps driving.'}`);}
+// SIM AR calibration dots: four coloured dots in the corners of the game view. A phone pointed at the screen finds
+// them and maps the game screen onto its camera image, so its HUD lands exactly on the sim picture.
+let calibKey=false;
+const calibOn=()=>document.body.classList.contains('calib-on');
+function updateCalib(){let on=calibKey;for(const d of REMOTE.dev.values())if(d.sim)on=true;document.body.classList.toggle('calib-on',on);}
+function calibCentres(){const r=stage.getBoundingClientRect(),out=[];
+  for(const i of [0,1,2,3]){const b=document.querySelector('.calib .c'+i).getBoundingClientRect();out.push(r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top));}
+  return out;}
 function remoteSend(o){const ws=REMOTE.ws;if(ws&&ws.readyState===1)ws.send(JSON.stringify(o));}
 function remotePanel(){
   if(!REMOTE.live)return;
@@ -1453,13 +1471,13 @@ async function remoteInit(){
       if(m.t==='hello'){sendTrack();}
       else if(m.t==='in'){const d=phoneDev(m.id);d.steer=+m.s||0;d.gas=+m.g||0;d.brake=+m.b||0;d.t=performance.now();
         if(!d.ar){REMOTE.steer=d.steer;REMOTE.gas=d.gas;REMOTE.brake=d.brake;REMOTE.t=d.t;REMOTE.n=(REMOTE.n||0)+1;}}
-      else if(m.t==='bye'){REMOTE.dev.delete(m.id);phoneRoles();}
+      else if(m.t==='bye'){REMOTE.dev.delete(m.id);phoneRoles();updateCalib();}
       else if(m.t==='phones'){const was=REMOTE.phones;REMOTE.phones=m.n;
         if(m.ids)for(const id of [...REMOTE.dev.keys()])if(!m.ids.includes(id))REMOTE.dev.delete(id);phoneRoles();
         if(m.n>was)sendTrack();
         if(m.n>0&&was===0){if(!running){ui.driver='drive';ui.steer='full';syncControls();applyLive();}toast('<b class="info">Phone wheel linked</b>Full steering: tilt to turn the wheels. Traction and stability control are on.');}
         if(m.n===0&&was>0){toast('<b class="info">Phone wheel disconnected</b>Keyboard controls still work.');}}
-      else if(m.t==='cmd'){if(m.c==='start'&&!running)startRun();else if(m.c==='stop'&&running)stopRun();else if(m.c==='drop')dropHazard();else if(m.c==='ar'){phoneDev(m.id).ar=!!m.on;phoneRoles();}else if(m.c==='cam'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}}};
+      else if(m.t==='cmd'){if(m.c==='start'&&!running)startRun();else if(m.c==='stop'&&running)stopRun();else if(m.c==='drop')dropHazard();else if(m.c==='ar'){phoneDev(m.id).ar=!!m.on;phoneRoles();}else if(m.c==='sim'){phoneDev(m.id).sim=!!m.on;updateCalib();}else if(m.c==='cam'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}}};
     ws.onclose=()=>{REMOTE.phones=0;remotePanel();setTimeout(connect,1000);};};
   connect();
   setInterval(()=>{REMOTE.rate=(REMOTE.n||0);REMOTE.n=0;remotePanel();},1000);

@@ -16,6 +16,8 @@ SIG = {
     "track_vprof": (PD, []), "track_lat": (PD, []),
     "trace_rgba": (ctypes.POINTER(ctypes.c_uint8), []), "trace_run": (I, [I, I, I, I, I, I, D]), "trace_method": (I, []),
     "trace_points": (ctypes.POINTER(ctypes.c_int), []),
+    "markers_frame": (ctypes.POINTER(ctypes.c_uint8), []), "markers_find": (I, [I, I]), "markers_found": (PD, []),
+    "markers_homography": (I, [D] * 16), "markers_hom": (PD, []),
     "veh_state": (PD, []), "veh_curv": (PD, []), "veh_set_track": (None, [I, D]), "veh_reset": (None, []),
     "veh_step": (None, [D, D, D, I, D, D]), "veh_set_water": (None, [D]),
     "spray_emit_tyre": (None, [I] + [D] * 8),

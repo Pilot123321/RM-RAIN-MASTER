@@ -49,7 +49,7 @@ function fitCanvas(){const d=Math.min(devicePixelRatio||1,1.5);   // 1.5x is sha
   cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);}
 addEventListener('resize',fitCanvas);fitCanvas();
 function onTrack(t){if(!HUD)return;HUD.setTrack(t);trackOk=true;}
-const SNAP=[];let clockOff=null;
+const SNAP=[],OFFS=[];let clockOff=null;
 function onState(m){msgs++;const hz=m.hz.map(h=>({type:h[0],s:h[1],lat:h[2],yaw:h[3],halfLen:h[4],halfW:h[5],vis:!!h[6],gone:!!h[7],avoid:h[8],vpass:h[9],label:h[10]}));
   const p=m.p,rd=m.rd;let radar=null;
   if(rd){const dets=[],tracks=[];for(let i=0;i<rd.d.length;i+=3)dets.push({x:rd.d[i],z:rd.d[i+1],st:!!rd.d[i+2]});
@@ -57,14 +57,17 @@ function onState(m){msgs++;const hz=m.hz.map(h=>({type:h[0],s:h[1],lat:h[2],yaw:
   if(m.ffb){FFB.v=m.ffb;FFB.t=performance.now();}if(m.scr)S.scr=m.scr;
   const behind=m.bh?{d:m.bh[0],side:m.bh[1],cl:m.bh[2]}:null;
   if(behind&&!S.behind&&S.running&&navigator.vibrate){navigator.vibrate([30,70,30]);FFB.hold=performance.now()+160;}S.behind=behind;rearGlow($('rearfx'),REAR,S.running?behind:null);
-  W={player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null,lapc:p[7]||0,brk:p[8]||0,thr:p[9]||0,gear:p[10]>=0?p[10]:p[10]===-2?0:null,rev:p[10]===-2,rpm:p[11]||0,beta:p[12]||0,steer:p[13]||0},radar,behind,spray:m.sp||0,flags:m.fg?Uint8Array.from(m.fg.slice(1)):null,secLen:m.fg?m.fg[0]:0,
+  W={player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null,lapc:p[7]||0,brk:p[8]||0,thr:p[9]||0,gear:p[10]>=0?p[10]:p[10]===-2?0:null,rev:p[10]===-2,rpm:p[11]||0,beta:p[12]||0,steer:p[13]||0},radar,behind,mk:m.mk||null,cm:m.cm||null,spray:m.sp||0,flags:m.fg?Uint8Array.from(m.fg.slice(1)):null,secLen:m.fg?m.fg[0]:0,
     traffic:m.tr.map(c=>({s:c[0],lat:c[1],latV:c[2],v:c[3],vis:!!c[4],closing:!!c[5],lapc:c[6]||0})),hazards:hz,alert:m.a,near:m.ni>=0?hz[m.ni]:null,dNear:m.dn,
     vis:m.vis,flagOn:!!m.fo,sc:{flag:m.fl||null},opts:{driver:m.dr?'drive':'model',hud:m.hd!==0},t:m.tm};
   Wt=performance.now();if(HUD)HUD.NAV.zoom=m.z||1;
-  const off=Wt/1000-m.tm;clockOff=clockOff==null||off<clockOff?off:clockOff+(off-clockOff)*0.02;
-  SNAP.push({tm:m.tm,w:W});while(SNAP.length>12)SNAP.shift();}
+  // sync on real time, not the game's sim clock (that runs slow whenever a frame is slow, which made the phone drift
+  // against the monitor). The game stamps each update with its wall clock; the smallest arrival delay seen over the
+  // last few seconds gives the offset between the two clocks without network jitter.
+  const tk=m.tw!=null?m.tw/1000:m.tm;OFFS.push(Wt/1000-tk);while(OFFS.length>150)OFFS.shift();clockOff=Math.min(...OFFS);
+  SNAP.push({tm:tk,w:W});while(SNAP.length>16)SNAP.shift();}
 function sampleWorld(now){
-  if(!SNAP.length||clockOff==null)return W;const rt=now/1000-clockOff-0.06,L=HUD.wrapS,dS=HUD.dSigned;
+  if(!SNAP.length||clockOff==null)return W;const rt=now/1000-clockOff-(S.sim?(CAM_LAT+DISP_LAT)/1000:0.06),L=HUD.wrapS,dS=HUD.dSigned;
   let i=SNAP.length-1;while(i>0&&SNAP[i-1].tm>rt)i--;
   const B=SNAP[i],A=i>0?SNAP[i-1]:null;
   if(!A||rt>=B.tm){const e=Math.min(0.15,Math.max(0,rt-B.tm)),P=B.w.player;   // small extrapolation if the next update is late
@@ -76,6 +79,8 @@ function sampleWorld(now){
     player:Object.assign({},pb,{s:ls(pa.s,pb.s),lat:lp(pa.lat,pb.lat),psi:lp(pa.psi||0,pb.psi||0),v:lp(pa.v,pb.v),latV:lp(pa.latV||0,pb.latV||0)}),
     traffic:B.w.traffic.map((c,j)=>{const ca=A.w.traffic[j];return ca?Object.assign({},c,{s:ls(ca.s,c.s),lat:lp(ca.lat,c.lat),v:lp(ca.v,c.v)}):c;}),
     hazards:B.w.hazards.map((h,j)=>{const ha=A.w.hazards[j];return ha?Object.assign({},h,{lat:lp(ha.lat,h.lat)}):h;}),
+    cm:A.w.cm&&B.w.cm?(()=>{const a=A.w.cm,b=B.w.cm,d=a[3]*b[3]+a[4]*b[4]+a[5]*b[5]+a[6]*b[6]>=0?1:-1,q=[3,4,5,6].map(i=>a[i]+(b[i]*d-a[i])*k),n=Math.hypot(...q)||1;
+      return [lp(a[0],b[0]),lp(a[1],b[1]),lp(a[2],b[2]),...q.map(v=>v/n)];})():B.w.cm,
     dNear:lp(A.w.dNear,B.w.dNear)});}
 // AR calibration: line up the drawn horizon and lane with the camera image
 let calOn=false,calDrag=null;
@@ -97,7 +102,7 @@ async function setAR(on){
       video.srcObject=camStream;video.hidden=false;await video.play().catch(()=>{});arOn=true;}
     catch(e){arOn=false;$('hudwait').hidden=false;$('hudwait').textContent=!window.isSecureContext?'The camera needs the https:// address or the USB address.':'Camera access was refused or is not available.';setTimeout(status,3000);}}
   else{arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.hidden=true;video.srcObject=null;}
-  $('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bCal').hidden=!arOn;$('bVR').hidden=!arOn;if(!arOn){calOn=false;setVR(false);}
+  $('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bCal').hidden=!arOn;$('bVR').hidden=!arOn;$('bSim').hidden=!arOn;if(!arOn){calOn=false;setVR(false);setSim(false);}
   // AR is a passenger view: the game's autopilot drives, so the pedals and steering are off
   document.body.classList.toggle('ar',arOn);$('bCenter').textContent=arOn?'Recenter':'Center';ORI.yaw=0;recenterAR();S.gas=S.brake=0;S.touchSteer=null;send({t:'cmd',c:'ar',on:arOn});}
 function drawHud(now){
@@ -107,9 +112,10 @@ function drawHud(now){
   const dt=Math.min(0.1,(now-(drawHud.last||now))/1000);drawHud.last=now;
   // smooth playback: interpolate between buffered updates instead of snapping to each one
   const view=sampleWorld(now);if(view.hazards&&W.near)view.near=view.hazards[W.hazards.indexOf(W.near)]||view.near;
-  HUD.setWorld(view);
+  HUD.setWorld(view);window.__view=view;   // for debugging from the browser console
   const H=cv.height,Wd=cv.width,u=H/420;
-  if(arOn&&S.vr){
+  if(arOn&&S.sim){simFrame(view,now,dt,Wd,H,u);}
+  else if(arOn&&S.vr){
     // VR headset: side-by-side stereo, one half per eye, eyes 64 mm apart, 90 degrees per eye for the lenses.
     // The camera (if on) is shown in both halves; the HUD sits at screen depth in each eye.
     const half=Wd/2,uu=u*0.8,pose=arPose();
@@ -133,6 +139,8 @@ function drawHud(now){
     cx.fillStyle='rgba(0,0,0,.38)';cx.fillRect(bx,ty-4*u,bw,th+8*u);
     HUD.drawTracker(cx,view,bx,ty,bw,th,uu,flash);
     HUD.drawFlagChip(cx,view,view.player.s,Wd/2-60*uu,ty+th+14*u,uu);
+    // close-range 2D radar in the corner: the cars right around you, 50 m ahead
+    {const rs=Math.min(H*0.44,Wd*0.24);HUD.drawNav(cx,view,now/1000,dt,uu,{x:Wd-rs-14*u,y:H*0.14,w:rs,h:rs*1.18},50);}
   } else {
     // the game screen's HUD layout (same camera, same positions), scaled to fit; no 3D picture behind it
     const gw=S.scr?S.scr[0]:1280,gh=S.scr?S.scr[1]:720,k=Math.min(Wd/gw,H/gh),ox=(Wd-gw*k)/2,oy=(H-gh*k)/2;
@@ -165,7 +173,11 @@ function rearGlow(el,st,b){
 // the road at your feet, turn to look into a corner, roll and the horizon stays level. Recenter makes the current
 // heading "straight down the track"; pitch and roll stay true to gravity so the horizon matches the real one.
 const DO={ok:false,a:0,b:0,g:0,h0:0,center:true};
-addEventListener('deviceorientation',e=>{if(e.alpha==null||e.beta==null)return;DO.a=e.alpha;DO.b=e.beta;DO.g=e.gamma||0;DO.ok=true;});
+addEventListener('deviceorientation',e=>{if(e.alpha==null||e.beta==null)return;DO.a=e.alpha;DO.b=e.beta;DO.g=e.gamma||0;DO.ok=true;
+  QH.push([performance.now(),devQuat()]);if(QH.length>40)QH.shift();});
+// recent phone orientations, so the SIM overlay can use the pose at the moment the (delayed) camera frame was taken
+const QH=[],CAM_LAT=90,DISP_LAT=20;
+function qAt(t){if(!QH.length)return DO.ok?devQuat():null;let b=QH[QH.length-1];for(let i=QH.length-1;i>=0;i--){b=QH[i];if(QH[i][0]<=t)break;}return b[1];}
 const qmul=(a,b)=>[a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1],a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0],a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3],a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2]];
 function qrot(q,v){const [x,y,z,w]=q,[vx,vy,vz]=v,ix=w*vx+y*vz-z*vy,iy=w*vy+z*vx-x*vz,iz=w*vz+x*vy-y*vx,iw=-x*vx-y*vy-z*vz;
   return [ix*w-iw*x-iy*z+iz*y,iy*w-iw*y-iz*x+ix*z,iz*w-iw*z-ix*y+iy*x];}
@@ -239,6 +251,68 @@ function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttr
 $('bLock').onclick=()=>{S.lock=S.lock===30?45:S.lock===45?70:30;syncOpts();};
 $('bFfb').onclick=()=>{S.ffb=!S.ffb;if(!S.ffb&&navigator.vibrate)navigator.vibrate(0);syncOpts();};
 $('bFlip').onclick=()=>{S.yawInv=!S.yawInv;recenterAR();syncOpts();};
+// ---- SIM AR: point the camera at the game screen. The sim shows four coloured calibration dots; the C++ core
+// (physics/markers.cpp) finds them in the camera image and gives the homography from the game screen to the
+// camera view. The HUD is drawn at game-screen size and warped through it (piecewise affine), so boxes, call signs,
+// the radar and flags sit exactly on the sim picture as the phone moves.
+let PHX=null;
+fetch('/physics.wasm').then(r=>r.arrayBuffer()).then(b=>WebAssembly.instantiate(b,{})).then(({instance})=>{PHX=instance.exports;if(PHX._initialize)PHX._initialize();}).catch(()=>{});
+const SIMAR={grab:document.createElement('canvas'),off:document.createElement('canvas'),t:0,seen:-1e9,dst:null,q:null,mask:0};
+function setSim(on){if(!!S.sim===!!on)return;S.sim=!!on;SIMAR.dst=null;$('bSim').setAttribute('aria-pressed',S.sim?'true':'false');if(S.sim)setVR(false);send({t:'cmd',c:'sim',on:S.sim});}
+$('bSim').onclick=()=>setSim(!S.sim);
+window.__simar=SIMAR;   // for debugging from the browser console
+function simDetect(now){
+  if(!PHX||!video.videoWidth||now-SIMAR.t<50)return;SIMAR.t=now;
+  const vw=video.videoWidth,vh=video.videoHeight,k=Math.min(1,640/Math.max(vw,vh)),w=Math.round(vw*k),h=Math.round(vh*k),g=SIMAR.grab;
+  if(g.width!==w||g.height!==h){g.width=w;g.height=h;}
+  const gc=g.getContext('2d',{willReadFrequently:true});gc.drawImage(video,0,0,w,h);
+  new Uint8Array(PHX.memory.buffer,PHX.markers_frame(),w*h*4).set(gc.getImageData(0,0,w,h).data);
+  const m=PHX.markers_find(w,h);SIMAR.mask=m;
+  const cnt=(m&1)+(m>>1&1)+(m>>2&1)+(m>>3&1);if(cnt<3||(cnt===3&&!SIMAR.dst))return;
+  // frame pixels -> canvas pixels (the video is shown full-screen, cover-cropped)
+  const F=new Float64Array(PHX.memory.buffer,PHX.markers_found(),8),s=Math.max(cv.width/vw,cv.height/vh),ox=(cv.width-vw*s)/2,oy=(cv.height-vh*s)/2;
+  let p=[0,1,2,3].map(i=>m>>i&1?[ox+F[2*i]/k*s,oy+F[2*i+1]/k*s]:null);
+  if(cnt===3){// one dot hidden (hand, glare): move the last known corner with the average shift of the other three
+    const prev=simPredict();let dx=0,dy=0;p.forEach((q,i)=>{if(q){dx+=q[0]-prev[i][0];dy+=q[1]-prev[i][1];}});p=p.map((q,i)=>q||[prev[i][0]+dx/3,prev[i][1]+dy/3]);}
+  const cr=(a,b,c)=>(b[0]-a[0])*(c[1]-b[1])-(b[1]-a[1])*(c[0]-b[0]),sg=[0,1,2,3].map(i=>Math.sign(cr(p[i],p[(i+1)%4],p[(i+2)%4])));
+  if(!sg.every(v=>v===sg[0]&&v!==0))return;
+  const prev=SIMAR.dst&&now-SIMAR.seen<500?simPredict():null;
+  SIMAR.dst=prev?prev.map((q,i)=>[q[0]+(p[i][0]-q[0])*0.6,q[1]+(p[i][1]-q[1])*0.6]):p;
+  SIMAR.seen=now;SIMAR.q=DO.ok?qAt(performance.now()-CAM_LAT):null;}
+// Between detections the phone keeps moving: rotate the last corners by how the phone has turned since then
+// (pure-rotation model: pixel -> ray -> rotate by the orientation change -> pixel), so the HUD stays on the screen.
+function simPredict(){const d=SIMAR.dst;if(!d||!SIMAR.q||!DO.ok)return d;
+  const vw=video.videoWidth||cv.width,vh=video.videoHeight||cv.height,s=Math.max(cv.width/vw,cv.height/vh),f=(vw/2)/Math.tan(CAL.hfov*Math.PI/360)*s,cxp=cv.width/2,cyp=cv.height/2;
+  const qn=qAt(performance.now()-CAM_LAT),qi=[-qn[0],-qn[1],-qn[2],qn[3]];
+  return d.map(([u,v])=>{const w=qrot(SIMAR.q,[(u-cxp)/f,-(v-cyp)/f,-1]),r=qrot(qi,w);if(r[2]>-0.05)return [u,v];return [cxp+f*r[0]/-r[2],cyp-f*r[1]/-r[2]];});}
+function simPips(Wd,H,u){const cols=['#FF3B3B','#3BF03B','#3B6BFF','#F03BF0'],m=SIMAR.mask||0,locked=performance.now()-SIMAR.seen<400;
+  cx.save();const x0=Wd/2-62*u,y0=H*0.04;cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(x0-8*u,y0-6*u,140*u,24*u);
+  cols.forEach((c,i)=>{cx.beginPath();cx.arc(x0+i*16*u,y0+6*u,5*u,0,Math.PI*2);if(m>>i&1){cx.fillStyle=c;cx.fill();}else{cx.strokeStyle=c;cx.lineWidth=1.5*u;cx.stroke();}});
+  cx.fillStyle=locked?'#3BF08A':'#FFC247';cx.font=`700 ${10*u}px "B612 Mono", monospace`;cx.textBaseline='middle';cx.fillText(locked?'LOCKED':'SEARCHING',x0+62*u,y0+6*u);cx.restore();}
+function simFrame(view,now,dt,Wd,H,u){
+  simDetect(now);
+  const mk=W&&W.mk,gw=S.scr?S.scr[0]:0,gh=S.scr?S.scr[1]:0;
+  if(!PHX||!mk||!gw||!SIMAR.dst||now-SIMAR.seen>1500){
+    simPips(Wd,H,u);cx.save();cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(Wd*0.2,H*0.42,Wd*0.6,H*0.16);cx.fillStyle='#E3EBF0';cx.textAlign='center';cx.textBaseline='middle';
+    cx.font=`700 ${14*u}px "B612 Mono", monospace`;cx.fillText(mk?'Point the camera at the game screen':'Waiting for the calibration dots on the sim',Wd/2,H*0.475);
+    cx.font=`${11*u}px "B612 Mono", monospace`;cx.fillText('All four coloured dots in the corners must be in view',Wd/2,H*0.53);cx.restore();return;}
+  simPips(Wd,H,u);
+  const d=simPredict();
+  if(!PHX.markers_homography(mk[0],mk[1],mk[2],mk[3],mk[4],mk[5],mk[6],mk[7],d[0][0],d[0][1],d[1][0],d[1][1],d[2][0],d[2][1],d[3][0],d[3][1]))return;
+  const Hm=Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9)),map=(x,y)=>{const w=Hm[6]*x+Hm[7]*y+1;return [(Hm[0]*x+Hm[1]*y+Hm[2])/w,(Hm[3]*x+Hm[4]*y+Hm[5])/w];};
+  // the HUD at game-screen size (60 % resolution), then warped onto the screen in the camera image
+  const k0=0.6,off=SIMAR.off,ow=Math.round(gw*k0),oh=Math.round(gh*k0);if(off.width!==ow||off.height!==oh){off.width=ow;off.height=oh;}
+  const oc=off.getContext('2d');oc.setTransform(1,0,0,1,0,0);oc.clearRect(0,0,ow,oh);oc.setTransform(k0,0,0,k0,0,0);
+  HUD.setSize(gw,gh);HUD.drawScreen(oc,view,now/1000,dt,true);
+  const tri=(S0)=>{const Q=S0.map(q=>map(q[0],q[1])),P=S0.map(q=>[q[0]*k0,q[1]*k0]);
+    const a1x=P[1][0]-P[0][0],a1y=P[1][1]-P[0][1],a2x=P[2][0]-P[0][0],a2y=P[2][1]-P[0][1],den=a1x*a2y-a2x*a1y;if(!den)return;
+    const b1x=Q[1][0]-Q[0][0],b1y=Q[1][1]-Q[0][1],b2x=Q[2][0]-Q[0][0],b2y=Q[2][1]-Q[0][1];
+    const a=(b1x*a2y-b2x*a1y)/den,c=(b2x*a1x-b1x*a2x)/den,b=(b1y*a2y-b2y*a1y)/den,dd=(b2y*a1x-b1y*a2x)/den,e=Q[0][0]-a*P[0][0]-c*P[0][1],f=Q[0][1]-b*P[0][0]-dd*P[0][1];
+    const mx=(Q[0][0]+Q[1][0]+Q[2][0])/3,my=(Q[0][1]+Q[1][1]+Q[2][1])/3;
+    cx.save();cx.beginPath();Q.forEach((q,i)=>{const x=q[0]+Math.sign(q[0]-mx)*0.8,y=q[1]+Math.sign(q[1]-my)*0.8;i?cx.lineTo(x,y):cx.moveTo(x,y);});cx.closePath();cx.clip();
+    cx.setTransform(a,b,c,dd,e,f);cx.drawImage(off,0,0);cx.restore();};
+  const G=5;for(let i=0;i<G;i++)for(let j=0;j<G;j++){const x0=gw*i/G,x1=gw*(i+1)/G,y0=gh*j/G,y1=gh*(j+1)/G;tri([[x0,y0],[x1,y0],[x1,y1]]);tri([[x0,y0],[x1,y1],[x0,y1]]);}
+}
 // ---- VR headset mode (from AR): side-by-side stereo. The buttons hide inside the headset; a tap brings them back
 // for a few seconds, a double tap re-centres the view.
 let vrUiT=0;
