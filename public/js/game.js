@@ -550,7 +550,38 @@ pbrTex('/assets/asphalt_rough.jpg',false,3.3,10,t=>{MATS.road.roughnessMap=t;wet
 /* wet track: water darkens asphalt (less diffuse light escapes a wet surface), fills the texture so the base goes
    smoother, and lies on top as a film that mirrors the floodlights: a clear coat whose strength follows the rain,
    glossiest where the puddle map says water stands. Kerbs and paint get slippery-shiny too. */
-function wetRoad(rain){const m=MATS.road,w=clamp(rain,0,1);
+/* Standing water, in the road's shader (world space, so it never repeats with the 4 m asphalt tile): puddles from
+   two octaves of noise, deeper towards the edges where the camber drains the water, thinner on the rubbered racing
+   line that the cars keep squeegeeing. Puddles go dark and mirror-smooth (clear coat), and rain drops ring on them. */
+MATS.road.onBeforeCompile=sh=>{
+  sh.uniforms.uRain={value:curRain};sh.uniforms.uTime={value:0};MATS.road.userData.shader=sh;
+  sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute float aRl;varying vec3 vWPos;varying float vRoadU;varying float vRl;')
+    .replace('#include <project_vertex>','#include <project_vertex>\nvWPos=(modelMatrix*vec4(transformed,1.0)).xyz;vRoadU=uv.x;vRl=aRl;');
+  sh.fragmentShader=sh.fragmentShader.replace('#include <common>',`#include <common>
+uniform float uRain;uniform float uTime;varying vec3 vWPos;varying float vRoadU;varying float vRl;
+float wHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float wNoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+  return mix(mix(wHash(i),wHash(i+vec2(1,0)),f.x),mix(wHash(i+vec2(0,1)),wHash(i+vec2(1,1)),f.x),f.y);}
+float wFbm(vec2 p){return 0.55*wNoise(p)+0.3*wNoise(p*2.03+5.1)+0.15*wNoise(p*4.1+9.7);}
+float gPuddle=0.0,gLine=0.0;
+vec2 wRipple(vec2 p,float t){vec2 c=floor(p),f=fract(p)-0.5,o=vec2(wHash(c+3.1),wHash(c+7.7))-0.5,d=f-o*0.6;
+  float ph=fract(t*0.8+wHash(c)),r=ph*0.42,dist=length(d),w=sin((dist-r)*48.0)*exp(-abs(dist-r)*22.0)*(1.0-ph);
+  return dist>0.001?d/dist*w:vec2(0.0);}`)
+    .replace('#include <color_fragment>',`#include <color_fragment>
+{float lat=(vRoadU-0.5)*13.2,rl=(vRl-0.5)*13.2,wet=smoothstep(0.12,0.7,uRain);
+  gLine=exp(-pow((lat-rl)/1.3,2.0));
+  float edge=smoothstep(4.2,6.5,abs(lat)),n=wFbm(vWPos.xz*0.06)*0.7+wFbm(vWPos.xz*0.31+7.0)*0.3;
+  gPuddle=smoothstep(0.5,0.64,n+edge*0.3-gLine*0.22+(uRain-0.6)*0.25)*wet;
+  diffuseColor.rgb*=(1.0-0.1*gLine)*(1.0-0.42*gPuddle);}`)
+    .replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\nroughnessFactor=mix(roughnessFactor,0.03,gPuddle);')
+    .replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>
+vec3 wPert=vec3(0.0);if(gPuddle>0.01&&uRain>0.2){vec2 rp=wRipple(vWPos.xz*1.6,uTime)+wRipple(vWPos.xz*2.3+vec2(5.3,1.7),uTime*1.13);
+  wPert=(viewMatrix*vec4(rp.x,0.0,rp.y,0.0)).xyz*0.35*gPuddle*uRain;normal=normalize(normal+wPert);}`)
+    .replace('#include <clearcoat_normal_fragment_begin>','#include <clearcoat_normal_fragment_begin>\nclearcoatNormal=normalize(clearcoatNormal+wPert);')
+    .replace('#include <lights_physical_fragment>',`#include <lights_physical_fragment>
+material.clearcoat=mix(material.clearcoat*(1.0-0.35*gLine),1.0,gPuddle);material.clearcoatRoughness=mix(material.clearcoatRoughness,0.02,gPuddle);`);
+};
+function wetRoad(rain){const m=MATS.road,w=clamp(rain,0,1);if(m.userData.shader)m.userData.shader.uniforms.uRain.value=w;
   m.color.set(m.userData.dry||0x8a9098).multiplyScalar(1-0.5*w);
   m.roughness=1-0.45*w;m.clearcoat=clamp(w*0.9,0,1);m.clearcoatRoughness=0.4-0.3*w;m.envMapIntensity=(0.3+0.25*w)*ENVK;
   MATS.line.roughness=0.8-0.55*w;MATS.kerb.roughness=0.45-0.3*w;MATS.verge.roughness=0.95-0.3*w;}
@@ -566,12 +597,12 @@ function buildTrackMeshes(){
   if(trackGroup){scene.remove(trackGroup);trackGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();});}
   trackGroup=new THREE.Group(); scene.add(trackGroup); STREAKS=[]; FOOT=[];
   const step=2, cnt=Math.floor(N/step)+1;
-  {const pos=[],uv=[],idx=[],col=[];
+  {const pos=[],uv=[],idx=[],col=[],rl=[];
     for(let k=0;k<=cnt;k++){const ii=Math.min(k*step,N),i=ii%N,s=ii*DS,rx=-TZ[i],rz=TX[i],y=H[i],e=HW+0.6;
-      pos.push(PX[i]-rx*e,y,PZ[i]-rz*e,PX[i]+rx*e,y,PZ[i]+rz*e);uv.push(0,s/40,1,s/40);
+      pos.push(PX[i]-rx*e,y,PZ[i]-rz*e,PX[i]+rx*e,y,PZ[i]+rz*e);uv.push(0,s/40,1,s/40);{const r=(LATRL?LATRL[i]:0)/e*0.5+0.5;rl.push(r,r);}
       {const a=lampLight(s,-e),b=lampLight(s,e);col.push(a,a,a*0.95,b,b,b*0.95);}
       if(k>0){const a=2*(k-1),b=a+1,c=2*k,d=c+1;idx.push(a,b,c,b,d,c);}}
-    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));g.setIndex(idx);g.computeVertexNormals();
+    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));g.setAttribute('aRl',new THREE.Float32BufferAttribute(rl,1));g.setIndex(idx);g.computeVertexNormals();
     const rm=new THREE.Mesh(g,MATS.road);rm.receiveShadow=true;trackGroup.add(rm);}
   for(const sg of [-1,1]){const p=[],u=[],ix=[],cl=[],G=sg<0?WGL:WGR;
     for(let k=0;k<=cnt;k++){const ii=Math.min(k*step,N),i=ii%N,s=ii*DS,x=PX[i]-TZ[i]*WALL*sg,z=PZ[i]+TX[i]*WALL*sg;
@@ -1871,6 +1902,7 @@ function frame(now){
   MINI.t-=dt;if(MINI.t<=0&&MINI.visible!==false){MINI.t=0.066;drawMiniLive(w);}
   const T2=performance.now();
   if(calibOn())tcTick();   // same frame as the render, so the number on screen belongs to this picture
+  if(MATS.road.userData.shader)MATS.road.userData.shader.uniforms.uTime.value=simT;
   if(composer)composer.render();else renderer.render(scene,camera);
   {const sp=w.spray||0,v=Math.round((ui.cam==='cockpit'?sp:sp*0.5)*100)/100;if(v!==sprayFx.v){sprayFx.v=v;sprayFx.el.style.setProperty('--spray',v);}}
   if(ui.cam==='cockpit'&&((w.spray||0)>0.01||DROPS.length))drawDrops(dt,w);else{dropsCv.style.opacity=0;DROPS.length=0;}

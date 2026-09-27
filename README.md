@@ -21,33 +21,41 @@ steering wheel.
   blocked by walls and crests, loses range in rain and spray, and its tracks show on the HUD as teal diamonds.
 - **Spray**: every car throws a plume from its rear tyres that grows with speed (about 5 m at 150 km/h and
   10 m at 300 km/h). Following in it blurs your view, puts droplets on the visor, thickens the fog and costs
-  downforce (dirty air). The road turns shiny with a water film as the rain setting goes up.
-- **Car behind**: a mirror tag when a car is within 50 m behind you, showing which side it is on and how fast
-  it is closing.
+  downforce (dirty air).
+- **Wet track**: the rain setting darkens the asphalt and lays a water film on it; puddles (world-space noise,
+  deeper at the edges where the camber drains, thinner on the rubbered racing line) go mirror-smooth and ring with
+  rain drops.
+- **Car behind**: thin flat flashes on the side a car is closing from, within 50 m.
+- **Engine sound**: loops cut from real V8 recordings (a Maserati V8 and the Bentley Speed 8 Le Mans car), pitched
+  to the physics rpm and crossfaded by rpm and throttle, with upshift cuts, overrun crackle and the nearest car
+  panned with Doppler.
 - **Phone wheel**: tilt an Android phone to steer, gas and brake on the sides. The phone shows the game
-  screen's HUD layout with the track edges (no 3D picture). In AR mode it uses the camera, keeps the overlay
-  level with the real horizon, and turns gas and brake into sliders (gas stays where you leave it, brake
-  springs back). Force feedback comes from the tyres through the vibration motor: impacts, lock-ups, kerbs,
+  screen's HUD layout with the track edges (no 3D picture). In AR mode (a passenger view: the autopilot drives)
+  it uses the camera and the phone's full orientation, smoothed so the overlay holds still. Force feedback comes from the tyres through the vibration motor: impacts, lock-ups, kerbs,
   wheelspin and slides, front scrub, and a steering-weight hum that fades as the front goes light.
 
 - **Layout**: the sim fills the window; Setup, Phone and Circuit open as tabs over it. The game screen stays
-  clean (lap tracker, gear and speed); boxes, call signs and the radar live on the phone and in AR (or on the PC with Visor HUD).
+  clean (gear and speed); boxes, call signs and the radar live on the phone and in AR, or on the PC with the
+  Visor HUD button (V).
 - **2D radar**: flat, heading-up proximity radar (like iRacing's) with range rings, call signs, side bars when a car
   is alongside, and yellow/red flag sectors.
 - **Flags**: ~200 m marshal sectors go yellow around a hazard and red when it blocks the track or a marshal is
   running across; the autopilot drops to VSC pace through red.
 - **Two phones**: one as the wheel, a second as the AR viewer (head yaw tracked). The AR road shows the surface, barriers, centre dashes, kerbs and corner
   chevrons. Phones pair through the key in the QR code; phones over USB need none.
-- **SIM AR**: point the phone at the computer screen and tap SIM (in AR). The sim shows four coloured calibration
-  dots (or press K); the phone finds them (C++, `physics/markers.cpp`), works out the screen's homography and draws
-  the HUD exactly over the sim picture.
+- **SIM AR**: point the phone at the computer screen and tap SIM (in AR). The sim shows ten coloured calibration
+  dots and a frame-number strip (or press K / the Dots button). The phone finds the dots (C++,
+  `physics/markers.cpp`), fits the screen mapping plus its own lens bend, reads the frame number so the HUD is
+  drawn for exactly the frame on screen, and warps the HUD over the sim picture.
 - **Circuits from screenshots**: drop a screenshot anywhere on the page or paste it (Cmd+V).
 
 ### On the web
 
-The simulator runs entirely in the browser (the physics is WebAssembly), so it is also deployed as a static site on
-Vercel (`vercel.json`: serves `public/`, `/` opens the game). The phone features (wheel, AR, SIM AR) need the local
-server below, because they talk to the game through a WebSocket relay on your computer.
+The simulator runs entirely in the browser (the physics is WebAssembly), so it is deployed on Vercel:
+https://rm-racing.vercel.app (`vercel.json`: serves `public/`, `/` opens the game). Phones pair through a WebSocket
+relay function (`api/ws.js`) with a private room code in the phone link, so no home IP is ever exposed. The relay
+works within one server instance; set `REDIS_URL` (any Redis, e.g. from the Vercel Marketplace) to relay across
+instances when many people use the site at once. The local server below still works for Wi-Fi and USB.
 
 ### Run it
 

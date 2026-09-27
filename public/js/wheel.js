@@ -16,12 +16,18 @@ const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,qu
 
 // ---- connection
 let ws=null;
+// On the website the relay runs on several server instances and (without Redis) only relays within one; if this
+// phone lands on another instance than the game it sees no game. It then reconnects after a moment, which soon
+// lands it next to the game. The local server (a port in the address, or a LAN/loopback host) is one process.
+const CLOUD=location.port===''&&!/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[)/.test(location.hostname);
+let lonely=0;
 function connect(){
   ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=wheel&id='+PID+'&k='+encodeURIComponent(PAIR));
   ws.onopen=()=>{resetWorld();S.unpaired=false;status();hello();};
   ws.onmessage=e=>{if(typeof e.data!=='string')return;let m;try{m=JSON.parse(e.data);}catch(_){return;}
     if(m.t==='track'){onTrack(m);return;} if(m.t==='w'){onState(m);return;}
-    if(m.t==='games'){if(S.games!==m.n)resetWorld();S.games=m.n;status();hello();}
+    if(m.t==='games'){if(S.games!==m.n)resetWorld();S.games=m.n;status();hello();
+      clearTimeout(lonely);if(CLOUD&&!m.n)lonely=setTimeout(()=>{if(ws&&ws.readyState===1&&!S.games)ws.close(4000,'find the game');},2000+Math.random()*1500);}
     else if(m.t==='st'){S.running=m.r;S.ap=!!m.ap;S.wh=m.wh||0;$('bRun').textContent=m.r?'Stop':'Start';
       if(m.a===2&&S.alert!==2&&navigator.vibrate){navigator.vibrate([90,60,90]);FFB.hold=performance.now()+260;}
       if(m.w&&!S.wall&&!S.ffb&&navigator.vibrate)navigator.vibrate(40);S.wall=m.w;
@@ -190,14 +196,26 @@ function devQuat(){const b=DO.b*D2R,a=DO.a*D2R,g=-DO.g*D2R,o=((screen.orientatio
   let q=[s1*c2*c3+c1*s2*s3,c1*s2*c3-s1*c2*s3,c1*c2*s3-s1*s2*c3,c1*c2*c3+s1*s2*s3];   // Euler (beta, alpha, -gamma), order YXZ
   q=qmul(q,[-Math.SQRT1_2,0,0,Math.SQRT1_2]);                                          // the camera looks out of the back
   return qmul(q,[0,0,Math.sin(-o/2),Math.cos(-o/2)]);}                                  // screen rotated to landscape
+// Adaptive smoothing of the phone's orientation (a One-Euro-style filter on the quaternion): sensor noise makes the
+// raw pose tremble by a few tenths of a degree, which shows as a shimmering overlay when the phone is held still.
+// The filter's time constant follows the turn rate: ~80 ms when still (steady), ~10 ms when turning (no lag).
+const QF={q:null,t:0};
+function slerp(a,b,k){let d=a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];if(d<0){b=b.map(v=>-v);d=-d;}
+  if(d>0.9995){const r=a.map((v,i)=>v+(b[i]-v)*k),n=Math.hypot(...r);return r.map(v=>v/n);}
+  const th=Math.acos(d),s0=Math.sin((1-k)*th)/Math.sin(th),s1=Math.sin(k*th)/Math.sin(th);return a.map((v,i)=>v*s0+b[i]*s1);}
+function smoothQuat(q,now){
+  if(!QF.q||now-QF.t>300){QF.q=q;QF.t=now;return q;}
+  const dt=(now-QF.t)/1000;QF.t=now;if(dt<=0)return QF.q;
+  const d=Math.abs(QF.q[0]*q[0]+QF.q[1]*q[1]+QF.q[2]*q[2]+QF.q[3]*q[3]),speed=2*Math.acos(Math.min(1,d))/dt;   // rad/s
+  const tau=0.01+0.07*Math.exp(-speed/0.5);QF.q=slerp(QF.q,q,1-Math.exp(-dt/tau));return QF.q;}
 // camera pose for the AR projection: pitch (down +), roll (horizon angle), yaw (+ = looking right of straight ahead)
 function arPose(){
   if(!DO.ok){const y=-ORI.yaw;return {pitch:CAL.pitchOff,roll:0,yaw:CAL.yawOff+y};}           // fallback: gyro yaw only
-  const q=devQuat(),f=qrot(q,[0,0,-1]),up=qrot(q,[0,1,0]),rt=qrot(q,[1,0,0]),h=Math.atan2(f[0],-f[2]);
+  const q=smoothQuat(devQuat(),performance.now()),f=qrot(q,[0,0,-1]),up=qrot(q,[0,1,0]),rt=qrot(q,[1,0,0]),h=Math.atan2(f[0],-f[2]);
   if(DO.center){DO.h0=h;DO.center=false;}
   let yaw=Math.atan2(Math.sin(h-DO.h0),Math.cos(h-DO.h0));if(S.yawInv)yaw=-yaw;
   return {pitch:-Math.asin(clamp(f[1],-1,1))+CAL.pitchOff,roll:Math.atan2(rt[1],up[1]),yaw:CAL.yawOff+yaw};}
-function recenterAR(){ORI.yaw=0;DO.center=true;}
+function recenterAR(){ORI.yaw=0;DO.center=true;QF.q=null;}
 function fuse(e,ax,ay,az,gm){
   const now=e.timeStamp||performance.now(),dt=ORI.t?clamp((now-ORI.t)/1000,0,0.1):0;ORI.t=now;
   const m=[ax/gm,ay/gm,az/gm];if(!ORI.u){ORI.u=m;return;}const u=ORI.u,r=e.rotationRate;
