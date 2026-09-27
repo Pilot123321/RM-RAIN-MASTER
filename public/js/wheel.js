@@ -101,20 +101,6 @@ function sampleWorld(now){
     cm:A.w.cm&&B.w.cm?(()=>{const a=A.w.cm,b=B.w.cm,d=a[3]*b[3]+a[4]*b[4]+a[5]*b[5]+a[6]*b[6]>=0?1:-1,q=[3,4,5,6].map(i=>a[i]+(b[i]*d-a[i])*k),n=Math.hypot(...q)||1;
       return [lp(a[0],b[0]),lp(a[1],b[1]),lp(a[2],b[2]),...q.map(v=>v/n)];})():B.w.cm,
     dNear:lp(A.w.dNear,B.w.dNear)});}
-// AR calibration: line up the drawn horizon and lane with the camera image
-let calOn=false,calDrag=null;
-function drawCal(A,Wd,H,u){cx.save();cx.strokeStyle='rgba(255,194,71,.95)';cx.lineWidth=2*u;cx.setLineDash([10*u,6*u]);
-  cx.beginPath();cx.moveTo(A.horizon[0][0],A.horizon[0][1]);cx.lineTo(A.horizon[1][0],A.horizon[1][1]);cx.stroke();cx.setLineDash([]);
-  cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(Wd*0.27,H*0.2,Wd*0.46,H*0.3);cx.fillStyle='#FFC247';cx.font=`700 ${13*u}px "B612 Mono", monospace`;cx.textAlign='center';
-  cx.fillText('CALIBRATE AR',Wd/2,H*0.26);cx.font=`${11*u}px "B612 Mono", monospace`;cx.fillStyle='#E3EBF0';
-  cx.fillText('Drag up/down: put the dashed line on the real horizon',Wd/2,H*0.32);cx.fillText('Drag left/right: widen or narrow the lane to match the road',Wd/2,H*0.37);
-  cx.fillText(`pitch ${(CAL.pitchOff*57.3).toFixed(1)}°  ·  field of view ${CAL.hfov.toFixed(0)}°  ·  height ${CAL.camH.toFixed(2)} m`,Wd/2,H*0.43);
-  cx.restore();}
-function calStart(e){if(!calOn||e.target.closest('.bar'))return;e.preventDefault();e.stopPropagation();calDrag={x:e.clientX,y:e.clientY,p:CAL.pitchOff,f:CAL.hfov};}
-function calMove(e){if(!calDrag)return;const dy=(e.clientY-calDrag.y)/innerHeight,dx=(e.clientX-calDrag.x)/innerWidth;
-  CAL.pitchOff=clamp(calDrag.p-dy*0.9,-0.6,0.6);CAL.hfov=clamp(calDrag.f-dx*60,35,110);}
-function calEnd(){if(calDrag){calDrag=null;saveCal();}}
-addEventListener('pointerdown',calStart,true);addEventListener('pointermove',calMove);addEventListener('pointerup',calEnd);addEventListener('pointercancel',calEnd);
 // AR: the rear camera is the background, the overlay is drawn where things would be in front of you
 async function setAR(on){
   const request=++cameraRequest;cameraError='';$('bAR').disabled=true;
@@ -124,9 +110,9 @@ async function setAR(on){
     catch(e){arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.srcObject=null;video.hidden=true;
       cameraError=!window.isSecureContext?'The camera needs the https:// address or the USB address.':'Camera access was refused or is not available. Tap AR to retry.';}}
   else{arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.hidden=true;video.srcObject=null;}
-  $('bAR').disabled=false;$('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bCal').hidden=!arOn;$('bSim').hidden=!arOn;if(!arOn){setCalibration(false);setSim(false);}
+  $('bAR').disabled=false;$('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bSim').hidden=!arOn;if(!arOn)setSim(false);
   // AR is a passenger view: the game's autopilot drives, so the pedals and steering are off
-  document.body.classList.toggle('ar',arOn);$('bCenter').textContent=arOn?'Recenter':'Center';ORI.yaw=0;recenterAR();S.gas=S.brake=0;S.touchSteer=null;send({t:'cmd',c:'ar',on:arOn});status();}
+  document.body.classList.toggle('ar',arOn);ORI.yaw=0;recenterAR();S.gas=S.brake=0;S.touchSteer=null;send({t:'cmd',c:'ar',on:arOn});status();}
 function drawHud(now){
   cx.setTransform(1,0,0,1,0,0);
   if(arOn)cx.clearRect(0,0,cv.width,cv.height);else{cx.fillStyle='#000';cx.fillRect(0,0,cv.width,cv.height);}
@@ -147,7 +133,6 @@ function drawHud(now){
     const uu=u*1.05,flash=true;
     const pose=arPose(),cam={pitch:pose.pitch,roll:pose.roll,hfov:CAL.hfov,camH:CAL.camH,yawOff:pose.yaw,rawYaw:true,vw:video.videoWidth||0,vh:video.videoHeight||0};
     const A=HUD.drawARView(cx,view,now/1000,uu,Wd,H,cam);
-    if(calOn)drawCal(A,Wd,H,uu);
     // readable bands for the header and lap tracker over a bright camera image
     const bx=Wd*0.27,bw=Wd*0.46,hh=H*0.12,th=H*0.14,ty=H*0.04;   // position / lap tracker at the top
     cx.fillStyle='rgba(0,0,0,.38)';cx.fillRect(bx,ty-4*u,bw,th+8*u);
@@ -266,7 +251,7 @@ addEventListener('orientationchange',()=>{S.trim=0;});
 // ---- pedals (multi-touch)
 function pedal(el,key){
   const on=v=>{S[key]=v;el.classList.toggle('on',!!v);if(v&&navigator.vibrate)navigator.vibrate(12);};
-  el.addEventListener('pointerdown',e=>{if(calOn||arOn)return;e.preventDefault();el.setPointerCapture(e.pointerId);on(1);});
+  el.addEventListener('pointerdown',e=>{if(arOn)return;e.preventDefault();el.setPointerCapture(e.pointerId);on(1);});
   for(const ev of ['pointerup','pointercancel','lostpointercapture'])el.addEventListener(ev,()=>on(0));
 }
 pedal($('gas'),'gas');pedal($('brake'),'brake');
@@ -278,14 +263,22 @@ wb.addEventListener('pointermove',e=>{if(dragX==null)return;S.touchSteer=clamp((
 for(const ev of ['pointerup','pointercancel'])wb.addEventListener(ev,()=>{dragX=null;S.touchSteer=0;});
 
 // ---- buttons
-$('bCenter').onclick=()=>{if(S.sim)resetSim();else if(arOn){recenterAR();recFlash();}else recenter();};
 $('bRun').onclick=()=>send({t:'cmd',c:S.running?'stop':'start'});
 $('bDrop').onclick=()=>send({t:'cmd',c:'drop'});
 $('bCam').onclick=()=>send({t:'cmd',c:'cam'});
 $('bAR').onclick=()=>setAR(!arOn);
 $('bSetup').onclick=()=>{const open=$('bLock').hidden;document.querySelectorAll('.more').forEach(b=>b.hidden=!open);$('bSetup').setAttribute('aria-pressed',open?'true':'false');};
-function setCalibration(on){calOn=!!on;calDrag=null;$('bCal').setAttribute('aria-pressed',calOn?'true':'false');$('bCal').textContent=calOn?'Done':S.sim?'Recalibrate':'Calibrate';}
-$('bCal').onclick=()=>{if(S.sim){resetSim();$('simControls').hidden=!$('simControls').hidden;}else setCalibration(!calOn);};
+// One button calibrates and centres, automatically, whatever the mode:
+//   wheel: the way the phone is held now is straight ahead (steering centre)
+//   AR:    straight ahead = where the phone points now; old manual offsets are cleared; the sim's dots are looked
+//          for again (SIM comes on by itself when they are seen), which relearns the lens and the field of view
+//   SIM:   the screen is reacquired and the display + camera delay is relearnt from the frame numbers
+function calibrate(){
+  if(!arOn){recenter();recFlash('Centred');return;}
+  recenterAR();CAL.pitchOff=0;CAL.yawOff=0;saveCal();
+  S.simBlock=false;SIMAR.syncN=0;SIMAR.tcRej=0;SIMAR.prevPts=null;resetSim();
+  recFlash(S.sim?'Reacquiring the screen':'Centred · looking for the sim');}
+$('bCal').onclick=calibrate;
 function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttribute('aria-pressed',S.inv?'true':'false');$('bFfb').setAttribute('aria-pressed',S.ffb?'true':'false');$('bFlip').setAttribute('aria-pressed',S.yawInv?'true':'false');
   try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv2',S.inv?'1':'0');localStorage.setItem('rw.ffb',S.ffb?'1':'0');localStorage.setItem('rw.flip',S.yawInv?'1':'0');}catch(e){}}
 $('bLock').onclick=()=>{S.lock=S.lock===30?45:S.lock===45?70:30;syncOpts();};
@@ -308,8 +301,8 @@ fetch('/physics.wasm').then(r=>{if(!r.ok)throw new Error('Detector download fail
   if(p._initialize)p._initialize();PHX=p;
 }).catch(()=>{SIMAR.error='Could not load the screen detector. Reload this page to retry.';});
 function resetSim(){SIMAR.tracker.reset();SIMAR.t=-Infinity;SIMAR.frameAt=0;SIMAR.videoTime=-1;SIMAR.geometry='';}
-function setSim(on,keepLock){on=!!on&&arOn;if(!!S.sim===on)return;S.sim=on;if(keepLock){SIMAR.lastLock=performance.now();SIMAR.fc=null;}else resetSim();setCalibration(false);$('simControls').hidden=true;
-  document.body.classList.toggle('sim',on);$('bSim').setAttribute('aria-pressed',on?'true':'false');$('bCenter').textContent=on?'Reacquire':arOn?'Recenter':'Center';
+function setSim(on,keepLock){on=!!on&&arOn;if(!!S.sim===on)return;S.sim=on;if(keepLock){SIMAR.lastLock=performance.now();SIMAR.fc=null;}else resetSim();$('simControls').hidden=true;
+  document.body.classList.toggle('sim',on);$('bSim').setAttribute('aria-pressed',on?'true':'false');
   send({t:'cmd',c:'sim',on});}
 // SIM comes on by itself when the camera finds the dots; the button still forces it on, or off (and then stays off
 // until pressed again)
@@ -467,9 +460,9 @@ function simFrame(view,now,dt,Wd,H,u){
 }
 // AR: double-tap anywhere on the view to make the way you are facing "straight ahead"
 let lastTap=0;
-addEventListener('pointerdown',e=>{if(!arOn||calOn||e.target.closest('.bar,.sheet'))return;const now=performance.now();
+addEventListener('pointerdown',e=>{if(!arOn||e.target.closest('.bar,.sheet'))return;const now=performance.now();
   if(now-lastTap<350){recenterAR();lastTap=0;if(navigator.vibrate)navigator.vibrate(15);recFlash();}else lastTap=now;});
-function recFlash(){const el=$('recenter');el.classList.remove('show');void el.offsetWidth;el.classList.add('show');}
+function recFlash(text){const el=$('recenter');el.textContent=text||'Centred';el.classList.remove('show');void el.offsetWidth;el.classList.add('show');}
 // ---- force feedback from the tyres. A phone motor is only on or off, so each channel is a rhythm and its
 // strength a duty cycle inside each 60 ms window, highest priority first:
 //   impact: one long pulse · lock-up: fast ABS-like chatter · kerb: stripe-rate pulses · wheelspin / rear slide:

@@ -160,7 +160,8 @@ async function main() {
   assert(tracker.ready(1010));
   await app.click('bCal');
   assert(!tracker.ready(1010), 'SIM recalibration discards previous marker lock');
-  assert.equal(app.element('bCal').getAttribute('aria-pressed'), 'false', 'SIM recalibration does not enter manual horizon calibration');
+  assert.notEqual(app.element('bCal').getAttribute('aria-pressed'), 'true', 'Calibrate is a one-tap automatic action, not a manual mode');
+  assert(!app.texts.includes('CALIBRATE AR'), 'No manual drag calibration screen');
 
   const reload = fixture();
   await reload.flush();
