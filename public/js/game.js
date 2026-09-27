@@ -1003,7 +1003,29 @@ function drawTargets(c,w,proj,u){
 //       measures), hfov (deg, of the video), vw, vh (video size), camH (m), yawOff (rad), eyeX (m, stereo eye offset
 //       to the right), rawYaw (follow the car's
 //       heading exactly like the game's cockpit camera, instead of the smoothed heading)}
+// AR through the sim's own camera: the pose the game rendered this frame (position, heading, the pitch dip under
+// braking, kerb shake), turned by how far the phone points away from the screen (relYaw right +, relPitch down +).
+// Looking at the sim, AR then follows every corner and dip of the sim picture, not a separate model of the head.
+function simArCamera(w,Wd,Hd,cam){
+  const c=cam.cm,px=c[0],py=c[1],pz=c[2],n=Math.hypot(c[3],c[4],c[5],c[6])||1,qx=c[3]/n,qy=c[4]/n,qz=c[5]/n,qw=c[6]/n;
+  const rq=v=>{const tx=2*(qy*v[2]-qz*v[1]),ty=2*(qz*v[0]-qx*v[2]),tz=2*(qx*v[1]-qy*v[0]);return [v[0]+qw*tx+(qy*tz-qz*ty),v[1]+qw*ty+(qz*tx-qx*tz),v[2]+qw*tz+(qx*ty-qy*tx)];};
+  const F0=rq([0,0,-1]),U0=rq([0,1,0]),R0=rq([1,0,0]),y=cam.relYaw||0,p=cam.relPitch||0,cy=Math.cos(y),sy=Math.sin(y),cp=Math.cos(p),sp=Math.sin(p);
+  const F1=F0.map((v,i)=>v*cy+R0[i]*sy),R=R0.map((v,i)=>v*cy-F0[i]*sy),F=F1.map((v,i)=>v*cp-U0[i]*sp),U=U0.map((v,i)=>v*cp+F1[i]*sp);
+  const sc=cam.vw?Math.max(Wd/cam.vw,Hd/cam.vh):1,f=((cam.vw||Wd)/2)/Math.tan(cam.hfov*Math.PI/360)*sc,cx=Wd/2,cyy=Hd/2,cr=Math.cos(cam.roll||0),sr=Math.sin(cam.roll||0),NEAR=0.8;
+  const gy=worldPos(w.player.s,w.player.lat).y;
+  const toCam3=(x,yy,z)=>{const dx=x-px,dy=yy-py,dz=z-pz;return [dx*R[0]+dy*R[1]+dz*R[2],dx*U[0]+dy*U[1]+dz*U[2],dx*F[0]+dy*F[1]+dz*F[2]];};
+  const toCam=(x,z,yOff)=>toCam3(x,gy+yOff,z);
+  const toScr=q=>{const X=f*q[0]/q[2],Y=-f*q[1]/q[2];return [cx+X*cr-Y*sr,cyy+X*sr+Y*cr,q[2]];};
+  const projXZ=(x,z,yOff)=>{const q=toCam(x,z,yOff);return q[2]<NEAR?null:toScr(q);};
+  const seg=(a,b)=>{if(a[2]<NEAR&&b[2]<NEAR)return null;
+    if(a[2]<NEAR){const k=(NEAR-a[2])/(b[2]-a[2]);a=[a[0]+(b[0]-a[0])*k,a[1]+(b[1]-a[1])*k,NEAR];}
+    else if(b[2]<NEAR){const k=(NEAR-b[2])/(a[2]-b[2]);b=[b[0]+(a[0]-b[0])*k,b[1]+(a[1]-b[1])*k,NEAR];}
+    return [toScr(a),toScr(b)];};
+  const hy=f*F[1]/Math.max(1e-6,Math.hypot(F[0],F[2])),hl=Math.hypot(Wd,Hd),horizon=[[cx-hl*cr-hy*sr,cyy-hl*sr+hy*cr],[cx+hl*cr-hy*sr,cyy+hl*sr+hy*cr]];
+  return {E:{x:px,z:pz,fx:F[0],fz:F[2]},f,toCam,toScr,seg,projXZ,proj:(s2,lat,yOff)=>{const q=worldPos(s2,lat),v=toCam3(q.x,q.y+yOff,q.z);return v[2]<NEAR?null:toScr(v);},horizonY:cyy+hy,horizon};
+}
 function arCamera(w,Wd,Hd,cam){
+  if(cam.cm)return simArCamera(w,Wd,Hd,cam);
   const E0=egoPose(w,cam.rawYaw),ex=cam.eyeX||0,E={x:E0.x-E0.fz*ex,z:E0.z+E0.fx*ex,fx:E0.fx,fz:E0.fz},rx=-E.fz,rz=E.fx,sc=cam.vw?Math.max(Wd/cam.vw,Hd/cam.vh):1,fv=((cam.vw||Wd)/2)/Math.tan(cam.hfov*Math.PI/360),f=fv*sc;
   const ct=Math.cos(cam.pitch),st=Math.sin(cam.pitch),cy2=Math.cos(cam.yawOff||0),sy2=Math.sin(cam.yawOff||0),cr=Math.cos(cam.roll||0),sr=Math.sin(cam.roll||0),cx=Wd/2,cy=Hd/2,camH=cam.camH,NEAR=0.8;
   // camera coordinates [right, up, depth]

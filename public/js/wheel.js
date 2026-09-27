@@ -134,6 +134,8 @@ function drawHud(now){
   else if(arOn){
     const uu=u*1.05,flash=true;
     const pose=arPose(),cam={pitch:pose.pitch,roll:pose.roll,hfov:CAL.hfov,camH:CAL.camH,yawOff:pose.yaw,rawYaw:true,vw:video.videoWidth||0,vh:video.videoHeight||0};
+    // aligned to the sim (dots or Calibrate): draw through the sim's own camera, turned by the phone's offset from it
+    if(S.simRef&&view.cm){cam.cm=view.cm;cam.relYaw=pose.yaw;cam.relPitch=pose.pitch-simPitch();}
     const A=HUD.drawARView(cx,view,now/1000,uu,Wd,H,cam);
     // readable bands for the header and lap tracker over a bright camera image
     const bx=Wd*0.27,bw=Wd*0.46,hh=H*0.12,th=H*0.14,ty=H*0.04;   // position / lap tracker at the top
@@ -230,7 +232,7 @@ function alignAR(M,frameW,k){if(!W||!W.scr)return;const P=SC.project(M.H,W.scr[0
   const fp=(frameW/2)/Math.tan(CAL.hfov*Math.PI/360),dx=Math.atan((P[0]-M.cx)/fp),dy=Math.atan((P[1]-M.cy)/fp),r=arPoseRaw();
   const tp=simPitch()-dy-r.pitch,ty=-dx-r.yaw,wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
   CAL.pitchOff=clamp(CAL.pitchOff+wrap(tp-CAL.pitchOff)*k,-0.9,0.9);CAL.yawOff=wrap(CAL.yawOff+wrap(ty-CAL.yawOff)*k);
-  SIMAR.alignN=(SIMAR.alignN||0)+1;if(SIMAR.alignN%60===0)saveCal();}
+  S.simRef=true;SIMAR.alignN=(SIMAR.alignN||0)+1;if(SIMAR.alignN%60===0)saveCal();}
 function recenterAR(){ORI.yaw=0;DO.center=true;QF.q=null;}
 function fuse(e,ax,ay,az,gm){
   const now=e.timeStamp||performance.now(),dt=ORI.t?clamp((now-ORI.t)/1000,0,0.1):0;ORI.t=now;
@@ -311,7 +313,7 @@ function calibrate(){
   startCal();
   // pointing at the middle of the sim now: its centre is straight ahead at the sim camera's pitch (refined by the
   // dots as soon as they are seen)
-  recenterAR();const r=arPoseRaw();CAL.pitchOff=simPitch()-r.pitch;CAL.yawOff=0;saveCal();
+  recenterAR();const r=arPoseRaw();CAL.pitchOff=simPitch()-r.pitch;CAL.yawOff=0;saveCal();S.simRef=true;
   S.simBlock=false;SIMAR.syncN=0;SIMAR.tcRej=0;SIMAR.prevPts=null;resetSim();
   recFlash(S.sim?'Reacquiring the screen':'Centred · looking for the sim');}
 $('bCal').onclick=calibrate;
