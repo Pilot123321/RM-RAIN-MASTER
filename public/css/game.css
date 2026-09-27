@@ -322,8 +322,9 @@ body.calib-on .calib{display:block;}
 /* visual timecode: the frame number (7-bit Gray code) as black/white cells, after a white and a black reference cell.
    The phone reads it from the camera image and draws the HUD of exactly the frame that is on the screen. */
 .calib .tc{position:absolute;left:50%;top:24px;transform:translateX(-50%);display:flex;box-shadow:0 0 0 5px #777;}
-.calib .tc s{width:22px;height:22px;background:#000;}
-.calib .tc s:first-child,.calib .tc s.on{background:#fff;}
+/* the squares themselves are painted into the WebGL frame (tcPaint), so the number is part of the very picture it
+   belongs to; the page only holds their places and the grey frame the phone reads them in */
+.calib .tc s{width:24px;height:24px;}
 /* keep the corners clear for the calibration dots: the hazard button and the status text step inward */
 body.calib-on .drop{top:124px;}
 body.calib-on .status{bottom:124px;}

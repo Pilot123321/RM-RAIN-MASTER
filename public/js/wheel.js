@@ -297,7 +297,7 @@ $('bFlip').onclick=()=>{S.yawInv=!S.yawInv;recenterAR();syncOpts();};
 // the radar and flags sit exactly on the sim picture as the phone moves.
 let PHX=null;
 const SC=window.SimCalibration;
-const SIMAR={model:null,k1:0,fc:null,fcAt:0,sync:0,grab:document.createElement('canvas'),frame:document.createElement('canvas'),off:document.createElement('canvas'),tracker:new SC.Tracker(),t:-Infinity,frameAt:0,videoTime:-1,geometry:'',error:'',delay:110};
+const SIMAR={syncN:0,tcRej:0,model:null,k1:0,fc:null,fcAt:0,sync:0,grab:document.createElement('canvas'),frame:document.createElement('canvas'),off:document.createElement('canvas'),tracker:new SC.Tracker(),t:-Infinity,frameAt:0,videoTime:-1,geometry:'',error:'',delay:110};
 try{const k=+localStorage.getItem('rw.k1');if(Number.isFinite(k))SIMAR.k1=clamp(k,-0.35,0.35);}catch(e){}
 try{const delay=localStorage.getItem('rw.simDelay');if(delay!==null&&Number.isFinite(+delay))SIMAR.delay=clamp(+delay,0,300);}catch(e){}
 $('simDelay').value=SIMAR.delay;$('simDelayValue').textContent=SIMAR.delay+' ms';
@@ -383,7 +383,7 @@ function fitModel(f,w,h){
     SIMAR.k1+=(FO()[0]-SIMAR.k1)*0.08;if(performance.now()-(SIMAR.k1Saved||0)>3000){SIMAR.k1Saved=performance.now();try{localStorage.setItem('rw.k1',SIMAR.k1.toFixed(4));}catch(e){}}}
   let n=pairs.length;if(!PHX.markers_fit(n,cxc,cyc,rn,SIMAR.k1,0))return;
   if(FO()[1]>4&&n>4){n=4;if(!PHX.markers_fit(4,cxc,cyc,rn,SIMAR.k1,0))return;}   // a bad edge dot: fall back to the corners
-  SIMAR.model={H:Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9)),k1:SIMAR.k1,cx:cxc,cy:cyc,rn,n,at:SIMAR.frameAt};
+  SIMAR.model={H:Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9)),k1:SIMAR.k1,cx:cxc,cy:cyc,rn,n,rms:FO()[1],at:SIMAR.frameAt};
   autoFov(SIMAR.model,f.width*c.scale);}
 // The dots also calibrate plain AR: the screen is a rectangle, so its two edge directions through the camera must
 // be perpendicular and equally scaled. With the principal point at the frame centre that fixes the focal length
@@ -407,28 +407,38 @@ function readTimecode(f){
   if(!PHX.markers_homography(mk[0],mk[1],mk[2],mk[3],mk[4],mk[5],mk[6],mk[7],d[0][0],d[0][1],d[1][0],d[1][1],d[2][0],d[2][1],d[3][0],d[3][1]))return;
   const Hm=new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9),c=SC.cover(f.width,f.height,cv.width,cv.height),r=tc[4]*0.22,pts=[];
   let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
-  for(let i=0;i<9;i++){const x=tc[0]+(tc[2]-tc[0])*i/8,y=tc[1]+(tc[3]-tc[1])*i/8;
+  const NC=tc[5]||9;
+  for(let i=0;i<NC;i++){const x=tc[0]+(tc[2]-tc[0])*i/(NC-1),y=tc[1]+(tc[3]-tc[1])*i/(NC-1);
     for(const [ox,oy] of [[0,0],[-r,-r],[r,-r],[r,r],[-r,r]]){const p=SC.project(Hm,x+ox,y+oy);if(!p)return;
       const fx=Math.round((p[0]-c.x)/c.scale),fy=Math.round((p[1]-c.y)/c.scale);if(fx<0||fy<0||fx>=f.width||fy>=f.height)return;
       pts.push(fx,fy,i);x0=Math.min(x0,fx);y0=Math.min(y0,fy);x1=Math.max(x1,fx);y1=Math.max(y1,fy);}}
   const bw=x1-x0+1,bh=y1-y0+1;if(bw*bh>400*400)return;
-  const img=f.getContext('2d').getImageData(x0,y0,bw,bh).data,L=new Float64Array(9);
+  const img=f.getContext('2d').getImageData(x0,y0,bw,bh).data,L=new Float64Array(NC);
   for(let k=0;k<pts.length;k+=3){const q=((pts[k+1]-y0)*bw+pts[k]-x0)*4;L[pts[k+2]]+=img[q]*0.3+img[q+1]*0.59+img[q+2]*0.11;}
-  if(L[0]-L[1]<5*40)return;   // white and black reference cells too alike: glare or out of focus
-  const th=(L[0]+L[1])/2;let g=0;for(let i=2;i<9;i++)g=g<<1|(L[i]>th?1:0);
+  const span=L[0]-L[1];if(span<5*40)return;   // white and black reference squares too alike: glare or out of focus
+  // every square must read clearly white or clearly black; one in between (blur, moire, a frame change mid-exposure
+  // on a non-Gray square) makes the whole reading untrusted rather than a wrong frame
+  const th=(L[0]+L[1])/2;let g=0,par=0;
+  for(let i=2;i<NC;i++){if(Math.abs(L[i]-th)<0.22*span){SIMAR.tcBad=(SIMAR.tcBad||0)+1;return;}const v=L[i]>th?1:0;if(i<9){g=g<<1|v;par^=v;}else if(v!==par){SIMAR.tcBad=(SIMAR.tcBad||0)+1;return;}}
   g^=g>>1;g^=g>>2;g^=g>>4;SIMAR.fc=g;SIMAR.fcAt=SIMAR.frameAt;}
 function simSnap(now){
   if(SIMAR.fc==null||SIMAR.fcAt!==SIMAR.frameAt||clockOff==null)return null;
   for(let i=SNAP.length-1;i>=0;i--){const sn=SNAP[i];if(sn.fc!==SIMAR.fc)continue;
     const lag=(SIMAR.frameAt/1000-clockOff-sn.tm)*1000;if(lag<-20||lag>600)return null;
-    SIMAR.delay+=(clamp(lag,0,300)-SIMAR.delay)*0.1;SIMAR.sync=now;
+    // A reading must also agree with the delay measured so far (display + camera latency hardly changes). Until
+    // a few readings agree it is learnt quickly; after that a reading more than 45 ms off is treated as a misread
+    // and this frame falls back to the delay-based timing. If readings keep disagreeing, the delay is relearnt.
+    const settled=(SIMAR.syncN||0)>=8;
+    if(settled&&Math.abs(lag-SIMAR.delay)>45){if(++SIMAR.tcRej>20){SIMAR.syncN=0;SIMAR.tcRej=0;}return null;}
+    SIMAR.tcRej=0;SIMAR.syncN=(SIMAR.syncN||0)+1;
+    SIMAR.delay+=(clamp(lag,0,300)-SIMAR.delay)*(settled?0.05:0.35);SIMAR.sync=now;
     if(now-(SIMAR.shown||0)>500){SIMAR.shown=now;$('simDelay').value=Math.round(SIMAR.delay/10)*10;$('simDelayValue').textContent=Math.round(SIMAR.delay)+' ms (auto)';}
     return sn.w;}
   return null;}
 function simPips(Wd,H,u){const cols=['#FF3B3B','#3BF03B','#3B6BFF','#F03BF0'],m=SIMAR.tracker.mask,locked=SIMAR.tracker.ready(performance.now());
-  cx.save();const x0=Wd/2-62*u,y0=H*0.04;cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(x0-8*u,y0-6*u,215*u,24*u);
+  cx.save();const x0=Wd/2-62*u,y0=H*0.04;cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(x0-8*u,y0-6*u,300*u,24*u);
   cols.forEach((c,i)=>{cx.beginPath();cx.arc(x0+i*16*u,y0+6*u,5*u,0,Math.PI*2);if(m>>i&1){cx.fillStyle=c;cx.fill();}else{cx.strokeStyle=c;cx.lineWidth=1.5*u;cx.stroke();}});
-  cx.fillStyle=locked?'#3BF08A':'#FFC247';cx.font=`700 ${10*u}px "B612 Mono", monospace`;cx.textBaseline='middle';cx.fillText(locked?'LOCKED · '+(SIMAR.model?SIMAR.model.n:4)+' DOTS'+(performance.now()-(SIMAR.sync||0)<400?' · SYNC':''):'SEARCHING',x0+62*u,y0+6*u);cx.restore();}
+  cx.fillStyle=locked?'#3BF08A':'#FFC247';cx.font=`700 ${10*u}px "B612 Mono", monospace`;cx.textBaseline='middle';cx.fillText(locked?'LOCKED · '+(SIMAR.model?SIMAR.model.n:4)+' DOTS'+(performance.now()-(SIMAR.sync||0)<400?' · SYNC':'')+(SIMAR.model&&SIMAR.model.n>4?' · fit '+SIMAR.model.rms.toFixed(1)+' px':''):'SEARCHING',x0+62*u,y0+6*u);cx.restore();}
 function simFrame(view,now,dt,Wd,H,u){
   const f=SIMAR.frame;
   if(SIMAR.frameAt){const c=SC.cover(f.width,f.height,Wd,H);cx.drawImage(f,c.x,c.y,f.width*c.scale,f.height*c.scale);}

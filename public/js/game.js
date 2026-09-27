@@ -1563,11 +1563,23 @@ function phoneAR(on){if(!!REMOTE.ar===on)return;REMOTE.ar=on;
 // them and maps the game screen onto its camera image, so its HUD lands exactly on the sim picture.
 let calibKey=false;
 const calibOn=()=>document.body.classList.contains('calib-on');
-// timecode strip: every rendered frame gets a number (mod 128) that is shown on screen and sent with that frame's state
+// Timecode strip: every rendered frame gets a number (mod 128), shown on screen and sent with that frame's state, so
+// the phone can draw the HUD of exactly the frame its camera saw (the idea of on-screen timecodes used to measure
+// display latency, and of screen-camera links such as HiLight/InFrame). Ten squares: white and black references,
+// the number in 7-bit Gray code (a camera exposure spanning two frames reads as one of them) and a parity bit (a
+// misread square is caught, not turned into a wrong frame). The squares are painted into the WebGL frame right
+// after it is rendered: the page's own elements can reach the screen a frame before or after the canvas.
 let FC=0;const TC=[...document.querySelectorAll('#tc s')];
-function tcTick(){FC=(FC+1)&127;const g=FC^(FC>>1);for(let i=0;i<7;i++)TC[i+2].classList.toggle('on',!!((g>>(6-i))&1));}
-function tcGeom(){const r=stage.getBoundingClientRect(),a=TC[0].getBoundingClientRect(),b=TC[8].getBoundingClientRect();
-  return [r2(a.left+a.width/2-r.left),r2(a.top+a.height/2-r.top),r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top),r2(a.width)];}
+function tcTick(){FC=(FC+1)&127;}
+function tcBits(){const g=FC^(FC>>1),b=[1,0];let par=0;for(let i=6;i>=0;i--){const v=(g>>i)&1;b.push(v);par^=v;}b.push(par);return b;}
+const tcCol=new THREE.Color();
+function tcPaint(){const cr=glc.getBoundingClientRect(),bits=tcBits(),prevA=renderer.getClearAlpha();renderer.getClearColor(tcCol);const prev=tcCol.getHex();
+  renderer.setRenderTarget(null);renderer.setScissorTest(true);
+  TC.forEach((el,i)=>{const b=el.getBoundingClientRect();renderer.setScissor(b.left-cr.left,cr.height-(b.bottom-cr.top),b.width,b.height);renderer.setViewport(0,0,cr.width,cr.height);
+    renderer.setClearColor(bits[i]?0xffffff:0x000000,1);renderer.clear(true,false,false);});
+  renderer.setScissorTest(false);renderer.setClearColor(prev,prevA);}
+function tcGeom(){const r=stage.getBoundingClientRect(),a=TC[0].getBoundingClientRect(),b=TC[TC.length-1].getBoundingClientRect();
+  return [r2(a.left+a.width/2-r.left),r2(a.top+a.height/2-r.top),r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top),r2(a.width),TC.length];}
 // the dots show while a phone is in AR (it looks for them and switches to the sim overlay by itself) or on request
 function updateCalib(){let on=calibKey;for(const d of REMOTE.dev.values())if(d.sim||d.ar)on=true;document.body.classList.toggle('calib-on',on);
   const b=$('calibBtn');b.setAttribute('aria-pressed',on?'true':'false');b.querySelector('b').textContent=on?'On':'Off';}
@@ -1915,6 +1927,7 @@ function frame(now){
   if(calibOn())tcTick();   // same frame as the render, so the number on screen belongs to this picture
   if(MATS.road.userData.shader)MATS.road.userData.shader.uniforms.uTime.value=simT;
   if(composer)composer.render();else renderer.render(scene,camera);
+  if(calibOn())tcPaint();
   {const sp=w.spray||0,v=Math.round((ui.cam==='cockpit'?sp:sp*0.5)*100)/100;if(v!==sprayFx.v){sprayFx.v=v;sprayFx.el.style.setProperty('--spray',v);}}
   if(ui.cam==='cockpit'&&((w.spray||0)>0.01||DROPS.length))drawDrops(dt,w);else{dropsCv.style.opacity=0;DROPS.length=0;}
   const T3=performance.now();
@@ -1956,5 +1969,5 @@ PHYS.ready.then(()=>{
   requestAnimationFrame(frame);
   remoteInit();
 });
-window.__dbg={get eng(){return eng;},get AC(){return AC;},get camera(){return camera;},worldPos,gameCamera,get cw(){return cw;},get ch(){return ch;},scene,renderer,sprayPts,PHYS,rainL,get tg(){return trackGroup;},hc,get world(){return world;},ui,REMOTE,kap:s=>sampleArr(KC,s),get streaks(){return STREAKS;},MATS,get pg(){return playerGLB;},get glb(){return CAR_GLB;}};
+window.__dbg={get fc(){return FC;},get eng(){return eng;},get AC(){return AC;},get camera(){return camera;},worldPos,gameCamera,get cw(){return cw;},get ch(){return ch;},scene,renderer,sprayPts,PHYS,rainL,get tg(){return trackGroup;},hc,get world(){return world;},ui,REMOTE,kap:s=>sampleArr(KC,s),get streaks(){return STREAKS;},MATS,get pg(){return playerGLB;},get glb(){return CAR_GLB;}};
 })();
