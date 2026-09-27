@@ -1238,8 +1238,14 @@ function drawHUD(w,t,dt){
   // the game screen stays clean: no boxes, no radar panel and no position tracker (the phone HUD, AR, VR and
   // SIM AR carry those); only gear and speed remain
   NAV.rects=null;$('combiner').hidden=true;
+  // PC visor (toggle): the full visor HUD drawn through this frame's own camera. Off while a phone overlays the
+  // sim (SIM AR), so the two do not double up.
+  if(ui.pcVisor&&!calibOn()){const q=camera.quaternion,p=camera.position;
+    drawScreen(hc,Object.assign({},w,{cm:[p.x,p.y,p.z,q.x,q.y,q.z,q.w],fov:camera.fov}),t,dt,true);}
   drawPedals(hc,w,u,true);
 }
+function setPcVisor(on){ui.pcVisor=!!on;const b=$('pcVisor');b.setAttribute('aria-pressed',on?'true':'false');b.querySelector('b').textContent=on?'On':'Off';
+  try{localStorage.setItem('lar.pcvisor',on?'1':'0');}catch(e){}}
 
 /* ================= AUDIO (optional) ================= */
 let AC=null,eng=null;
@@ -1262,6 +1268,8 @@ function audioUpdate(w,running){
 
 /* ================= UI ================= */
 const ui={aids:true,traffic:12,scn:'free',hud:true,visor:true,driver:'drive',steer:'assist',cam:'cockpit',rain:SCN.free.rain,sound:false};
+$('pcVisor').addEventListener('click',e=>{setPcVisor(!ui.pcVisor);e.currentTarget.blur();});
+try{setPcVisor(localStorage.getItem('lar.pcvisor')==='1');}catch(e){setPcVisor(false);}
 let world=null, running=false, doneShownAt=null, runCount=0, lastAlert=0, shake=0, touchUsed=false;
 const LOG=[];
 function optsFromUI(){return {hud:ui.hud,visor:ui.visor,driver:ui.driver,steer:ui.steer,rain:ui.rain,traffic:ui.traffic,aids:ui.aids};}
@@ -1368,6 +1376,7 @@ addEventListener('keydown',e=>{
   else if(e.code==='KeyC'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}
   else if(e.code==='KeyN'){NAV.big=!NAV.big;}
   else if(e.code==='KeyK'){calibKey=!calibKey;updateCalib();}
+  else if(e.code==='KeyV'){setPcVisor(!ui.pcVisor);}
   else if(e.code==='KeyX'){dropHazard();}
   else if(e.code==='Equal'||e.code==='NumpadAdd'){NAV.zoom=clamp(NAV.zoom/1.3,0.4,3);}
   else if(e.code==='Minus'||e.code==='NumpadSubtract'){NAV.zoom=clamp(NAV.zoom*1.3,0.4,3);}
@@ -1423,7 +1432,7 @@ function phoneFrame(w,t,dt,now){
     drive?clamp((-Math.min(P.kf||0,P.kr||0)-0.1)*3,0,1):0,
     drive?clamp(((P.kr||0)-0.12)*3,0,1):0,
     w.spray||0, drive?(P.aqua||0):0].map(r2);
-  remoteSend({t:'w',src:SOURCE_ID,trackRev,worldRev,tm:r2(t),tw:Math.round(now),cm:[r4(camera.position.x),r4(camera.position.y),r4(camera.position.z),r4(camera.quaternion.x),r4(camera.quaternion.y),r4(camera.quaternion.z),r4(camera.quaternion.w)],fov:camera.fov,mk:calibOn()?calibCentres():null,fg:w.flags?[r2(w.secLen)].concat(Array.from(w.flags)):null,dr:drive?1:0,hd:w.opts.hud?1:0,bh:w.behind?[r2(w.behind.d),w.behind.side,r2(w.behind.cl)]:null,scr:[Math.round(cw),Math.round(ch)],sp:r2(w.spray||0),rd,ffb,
+  remoteSend({t:'w',src:SOURCE_ID,trackRev,worldRev,tm:r2(t),tw:Math.round(now),cm:[r4(camera.position.x),r4(camera.position.y),r4(camera.position.z),r4(camera.quaternion.x),r4(camera.quaternion.y),r4(camera.quaternion.z),r4(camera.quaternion.w)],fov:camera.fov,mk:calibOn()?calibCentres():null,fc:calibOn()?FC:null,tc:calibOn()?tcGeom():null,fg:w.flags?[r2(w.secLen)].concat(Array.from(w.flags)):null,dr:drive?1:0,hd:w.opts.hud?1:0,bh:w.behind?[r2(w.behind.d),w.behind.side,r2(w.behind.cl)]:null,scr:[Math.round(cw),Math.round(ch)],sp:r2(w.spray||0),rd,ffb,
     p:[r2(P.s),r2(P.lat),r4(P.psi||0),r2(P.latV||0),r2(P.slideV||0),r2(P.v),r2(P.vx==null?P.v:P.vx),P.lapc||0,r2(P.brk||0),r2(P.thr||0),P.rev?-2:P.gear==null?-1:P.gear,Math.round(P.rpm||0),r4(P.beta||0),r4(P.steer||0)],
     tr:w.traffic.map(c=>[r2(c.s),r2(c.lat),r2(c.latV),r2(c.v),c.vis?1:0,c.closing?1:0,c.lapc||0]),
     hz:w.hazards.map(h=>[h.type,r2(h.s),r2(h.lat),r2(h.yaw||0),h.halfLen,h.halfW,h.vis?1:0,h.gone?1:0,r2(h.avoid),h.vpass,h.label]),
@@ -1451,6 +1460,11 @@ function phoneAR(on){if(!!REMOTE.ar===on)return;REMOTE.ar=on;
 // them and maps the game screen onto its camera image, so its HUD lands exactly on the sim picture.
 let calibKey=false;
 const calibOn=()=>document.body.classList.contains('calib-on');
+// timecode strip: every rendered frame gets a number (mod 128) that is shown on screen and sent with that frame's state
+let FC=0;const TC=[...document.querySelectorAll('#tc s')];
+function tcTick(){FC=(FC+1)&127;const g=FC^(FC>>1);for(let i=0;i<7;i++)TC[i+2].classList.toggle('on',!!((g>>(6-i))&1));}
+function tcGeom(){const r=stage.getBoundingClientRect(),a=TC[0].getBoundingClientRect(),b=TC[8].getBoundingClientRect();
+  return [r2(a.left+a.width/2-r.left),r2(a.top+a.height/2-r.top),r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top),r2(a.width)];}
 function updateCalib(){let on=calibKey;for(const d of REMOTE.dev.values())if(d.sim)on=true;document.body.classList.toggle('calib-on',on);}
 function calibCentres(){const r=stage.getBoundingClientRect(),out=[];
   for(const i of [0,1,2,3]){const b=document.querySelector('.calib .c'+i).getBoundingClientRect();out.push(r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top));}
@@ -1782,6 +1796,7 @@ function frame(now){
   updateSpray(dt,w.rain);updateRain(dt,camera.position,vel,w.rain);
   MINI.t-=dt;if(MINI.t<=0&&MINI.visible!==false){MINI.t=0.066;drawMiniLive(w);}
   const T2=performance.now();
+  if(calibOn())tcTick();   // same frame as the render, so the number on screen belongs to this picture
   if(composer)composer.render();else renderer.render(scene,camera);
   {const sp=w.spray||0,v=Math.round((ui.cam==='cockpit'?sp:sp*0.5)*100)/100;if(v!==sprayFx.v){sprayFx.v=v;sprayFx.el.style.setProperty('--spray',v);}}
   if(ui.cam==='cockpit'&&((w.spray||0)>0.01||DROPS.length))drawDrops(dt,w);else{dropsCv.style.opacity=0;DROPS.length=0;}

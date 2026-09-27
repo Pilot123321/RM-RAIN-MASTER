@@ -1,4 +1,4 @@
-/* Look-Ahead Radar page. Direction: Formula 1 broadcast graphics. Black and carbon, one racing red, white type in
+/* RM page. Direction: Formula 1 broadcast graphics. Black and carbon, one racing red, white type in
    a wide italic, sharp angled corners, parallelogram buttons, a red stripe that runs along the top of the page.
    The game window keeps its own dark palette (tokens redefined on .stage). */
 :root{
@@ -33,7 +33,7 @@ body{padding:0;}
 .wrap{max-width:none;margin:0;padding:0;display:block;}
 .topbar{position:fixed;left:0;right:0;top:0;height:var(--bar);z-index:50;display:flex;align-items:center;gap:28px;padding:4px 22px 0;
   background:linear-gradient(180deg,#0B0B0E,rgb(11 11 14 / .92));border-bottom:1px solid var(--line);}
-.brand{font-size:22px;line-height:1;white-space:nowrap;}
+.brand{font-size:30px;line-height:1;white-space:nowrap;letter-spacing:-.01em;}
 .brand span{color:var(--red);}
 .tabs{display:flex;gap:4px;height:100%;align-items:stretch;overflow-x:auto;scrollbar-width:none;}
 .tabs button{appearance:none;border:0;background:none;color:var(--muted);cursor:pointer;padding:0 18px;position:relative;
@@ -110,6 +110,14 @@ body[data-view="setup"] .view[data-view="setup"],body[data-view="phone"] .view[d
 .drop{position:absolute;left:18px;top:18px;padding:9px 16px;border:0;background:rgb(10 10 12 / .8);color:var(--caution);font:700 12.5px/1 var(--f-ui);letter-spacing:.1em;text-transform:uppercase;cursor:pointer;
   border-left:3px solid var(--caution);clip-path:polygon(0 0,100% 0,calc(100% - 8px) 100%,0 100%);}
 .drop:hover{background:rgb(40 28 4 / .9);}
+/* PC visor: the phone's visor HUD (boxes, call signs, radar, tracker, flags) drawn on the sim screen itself */
+.pcvisor{position:absolute;right:18px;bottom:18px;z-index:40;padding:9px 14px;border:0;background:rgb(10 10 12 / .8);color:var(--muted);font:700 12px/1 var(--f-ui);letter-spacing:.1em;text-transform:uppercase;cursor:pointer;
+  border-right:3px solid var(--faint);clip-path:polygon(8px 0,100% 0,100% 100%,0 100%);}
+.pcvisor b{color:var(--ink);margin-left:6px;}
+.pcvisor[aria-pressed="true"]{border-right-color:var(--red-hi);}
+.pcvisor[aria-pressed="true"] b{color:var(--red-hi);}
+.pcvisor:hover{background:rgb(30 30 34 / .9);}
+body.calib-on .pcvisor{bottom:96px;}
 .toast{position:absolute;left:50%;top:18%;transform:translateX(-50%);max-width:min(460px,80%);padding:12px 18px;background:rgb(12 12 14 / .92);border-top:3px solid var(--red);font:14px/1.45 var(--f-ui);color:var(--ink);text-align:center;pointer-events:none;}
 .toast b{font:700 italic 22px/1.15 var(--f-ui);text-transform:uppercase;display:block;}
 .toast b.safe{color:var(--safe);} .toast b.near{color:var(--caution);} .toast b.contact{color:var(--red-hi);} .toast b.info{color:var(--caution);}
@@ -305,6 +313,11 @@ body.calib-on .calib{display:block;}
 .calib .c1{right:28px;top:28px;background:#14F014;}
 .calib .c2{right:28px;bottom:28px;background:#1446FF;}
 .calib .c3{left:28px;bottom:28px;background:#F014F0;}
+/* visual timecode: the frame number (7-bit Gray code) as black/white cells, after a white and a black reference cell.
+   The phone reads it from the camera image and draws the HUD of exactly the frame that is on the screen. */
+.calib .tc{position:absolute;left:50%;top:24px;transform:translateX(-50%);display:flex;box-shadow:0 0 0 5px #777;}
+.calib .tc s{width:22px;height:22px;background:#000;}
+.calib .tc s:first-child,.calib .tc s.on{background:#fff;}
 /* keep the corners clear for the calibration dots: the hazard button and the status text step inward */
 body.calib-on .drop{top:96px;}
 body.calib-on .status{bottom:100px;}

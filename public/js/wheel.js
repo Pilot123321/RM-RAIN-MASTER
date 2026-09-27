@@ -12,7 +12,7 @@ if(!PID){PID=Math.random().toString(36).slice(2,10);try{sessionStorage.setItem('
 let CAL={pitchOff:0,hfov:66,camH:1.05,yawOff:0};try{Object.assign(CAL,JSON.parse(localStorage.getItem('rw.arcal2')||'{}'));}catch(e){}
 for(const [key,lo,hi,def] of [['pitchOff',-0.6,0.6,0],['hfov',35,110,66],['camH',0.2,3,1.05],['yawOff',-Math.PI,Math.PI,0]])CAL[key]=Number.isFinite(CAL[key])?clamp(CAL[key],lo,hi):def;
 function saveCal(){try{localStorage.setItem('rw.arcal2',JSON.stringify(CAL));}catch(e){}}
-const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,lock:lockSaved,inv:invSaved,ffb:ffbSaved,yawInv:flipSaved,vr:false,vrCam:vrCamSaved,touchSteer:null,games:0,running:false,alert:0};
+const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,quarter:null,trim:0,farSince:0,lock:lockSaved,inv:invSaved,ffb:ffbSaved,yawInv:flipSaved,vr:false,vrCam:vrCamSaved,touchSteer:null,games:0,running:false,alert:0};
 
 // ---- connection
 let ws=null;
@@ -69,7 +69,7 @@ function onState(m){
   if(m.ffb){FFB.v=m.ffb;FFB.t=performance.now();}if(m.scr)S.scr=m.scr;
   const behind=m.bh?{d:m.bh[0],side:m.bh[1],cl:m.bh[2]}:null;
   if(behind&&!S.behind&&S.running&&navigator.vibrate){navigator.vibrate([30,70,30]);FFB.hold=performance.now()+160;}S.behind=behind;rearGlow($('rearfx'),REAR,S.running?behind:null);
-  W={player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null,lapc:p[7]||0,brk:p[8]||0,thr:p[9]||0,gear:p[10]>=0?p[10]:p[10]===-2?0:null,rev:p[10]===-2,rpm:p[11]||0,beta:p[12]||0,steer:p[13]||0},radar,behind,mk:m.mk||null,scr:m.scr||null,fov:m.fov||60,cm:m.cm||null,spray:m.sp||0,flags:m.fg?Uint8Array.from(m.fg.slice(1)):null,secLen:m.fg?m.fg[0]:0,
+  W={tc:m.tc||null,player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null,lapc:p[7]||0,brk:p[8]||0,thr:p[9]||0,gear:p[10]>=0?p[10]:p[10]===-2?0:null,rev:p[10]===-2,rpm:p[11]||0,beta:p[12]||0,steer:p[13]||0},radar,behind,mk:m.mk||null,scr:m.scr||null,fov:m.fov||60,cm:m.cm||null,spray:m.sp||0,flags:m.fg?Uint8Array.from(m.fg.slice(1)):null,secLen:m.fg?m.fg[0]:0,
     traffic:m.tr.map(c=>({s:c[0],lat:c[1],latV:c[2],v:c[3],vis:!!c[4],closing:!!c[5],lapc:c[6]||0})),hazards:hz,alert:m.a,near:m.ni>=0?hz[m.ni]:null,dNear:m.dn,
     vis:m.vis,flagOn:!!m.fo,sc:{flag:m.fl||null},opts:{driver:m.dr?'drive':'model',hud:m.hd!==0},t:m.tm};
   Wt=performance.now();if(HUD)HUD.NAV.zoom=m.z||1;
@@ -77,7 +77,7 @@ function onState(m){
   // against the monitor). The game stamps each update with its wall clock; the smallest arrival delay seen over the
   // last few seconds gives the offset between the two clocks without network jitter.
   const tk=m.tw!=null?m.tw/1000:m.tm;OFFS.push(Wt/1000-tk);while(OFFS.length>150)OFFS.shift();clockOff=Math.min(...OFFS);
-  SNAP.push({tm:tk,w:W});while(SNAP.length>90)SNAP.shift();}
+  SNAP.push({tm:tk,w:W,fc:m.fc==null?null:m.fc});while(SNAP.length>90)SNAP.shift();}
 function sampleWorld(now){
   if(!SNAP.length||clockOff==null)return W;const rt=now/1000-clockOff-(S.sim?SIMAR.delay/1000:0.06),L=HUD.wrapS,dS=HUD.dSigned;
   let i=SNAP.length-1;while(i>0&&SNAP[i-1].tm>rt)i--;
@@ -128,7 +128,7 @@ function drawHud(now){
   const dt=Math.min(0.1,(now-(drawHud.last||now))/1000);drawHud.last=now;
   // smooth playback: interpolate between buffered updates instead of snapping to each one
   if(arOn&&S.sim)simCapture(now);
-  const view=sampleWorld(arOn&&S.sim&&SIMAR.frameAt?SIMAR.frameAt:now);
+  const view=(arOn&&S.sim&&simSnap(now))||sampleWorld(arOn&&S.sim&&SIMAR.frameAt?SIMAR.frameAt:now);
   if(view.hazards&&view.near)view.near=view.hazards[view.hazards.indexOf(view.near)]||view.near;
   HUD.setWorld(view);window.__view=view;   // for debugging from the browser console
   const H=cv.height,Wd=cv.width,u=H/420;
@@ -236,11 +236,24 @@ function onMotion(e){
   if(Math.hypot(S.gx,S.gy)<2.5)return;           // phone lying flat: hold last angle
   S.hasMotion=true;
   const ang=Math.atan2(S.gx,S.gy)*180/Math.PI;
-  if(S.neutral==null)S.neutral=ang;
-  let d=angd(ang,S.neutral);if(S.inv)d=-d;
+  // Straight ahead = the phone held level in the way the screen is shown: gravity angle = screen rotation. The
+  // quarter-turn offset absorbs axis-sign differences between browsers (iOS vs Android) and a locked rotation, and
+  // the trim is the user's own "centre" (small). Taking the first reading as centre broke on iPhones: it was often
+  // taken while the phone was still upright, so every tilt landed near +-90..180 degrees (full lock, reversed).
+  if(S.quarter==null)recenter();
+  let d=angd(ang,screenRot()+S.quarter+S.trim);
+  // held far past full lock for a while: the reference is a quarter turn off (e.g. the page did not rotate); re-take it
+  if(Math.abs(d)>80){if(!S.farSince)S.farSince=performance.now();else if(performance.now()-S.farSince>1200){recenter();d=0;}}else S.farSince=0;
+  if(S.inv)d=-d;
   S.angle=d;
 }
-function recenter(){if(S.hasMotion)S.neutral=Math.atan2(S.gx,S.gy)*180/Math.PI;S.touchSteer=S.touchSteer==null?null:0;}
+function screenRot(){const o=screen.orientation&&screen.orientation.angle!=null?screen.orientation.angle:(window.orientation||0);return +o||0;}
+function recenter(){S.farSince=0;
+  if(S.hasMotion){const ang=Math.atan2(S.gx,S.gy)*180/Math.PI,base=screenRot();let best=0;
+    for(const q of [0,90,180,270])if(Math.abs(angd(ang,base+q))<Math.abs(angd(ang,base+best)))best=q;
+    S.quarter=best;S.trim=clamp(angd(ang,base+best),-30,30);}
+  S.touchSteer=S.touchSteer==null?null:0;}
+addEventListener('orientationchange',()=>{S.trim=0;});
 
 // ---- pedals (multi-touch)
 function pedal(el,key){
@@ -276,7 +289,7 @@ $('bFlip').onclick=()=>{S.yawInv=!S.yawInv;recenterAR();syncOpts();};
 // the radar and flags sit exactly on the sim picture as the phone moves.
 let PHX=null;
 const SC=window.SimCalibration;
-const SIMAR={grab:document.createElement('canvas'),frame:document.createElement('canvas'),off:document.createElement('canvas'),tracker:new SC.Tracker(),t:-Infinity,frameAt:0,videoTime:-1,geometry:'',error:'',delay:110};
+const SIMAR={fc:null,fcAt:0,sync:0,grab:document.createElement('canvas'),frame:document.createElement('canvas'),off:document.createElement('canvas'),tracker:new SC.Tracker(),t:-Infinity,frameAt:0,videoTime:-1,geometry:'',error:'',delay:110};
 try{const delay=localStorage.getItem('rw.simDelay');if(delay!==null&&Number.isFinite(+delay))SIMAR.delay=clamp(+delay,0,300);}catch(e){}
 $('simDelay').value=SIMAR.delay;$('simDelayValue').textContent=SIMAR.delay+' ms';
 $('simDelay').oninput=e=>{SIMAR.delay=clamp(+e.target.value,0,300);$('simDelayValue').textContent=SIMAR.delay+' ms';try{localStorage.setItem('rw.simDelay',SIMAR.delay);}catch(e){}};
@@ -310,12 +323,40 @@ function simCapture(now){
     const mask=PHX.markers_find(w,h),F=new Float64Array(PHX.memory.buffer,PHX.markers_found(),8);
     const points=[0,1,2,3].map(i=>[F[2*i]*f.width/w,F[2*i+1]*f.height/h]);
     SIMAR.tracker.update(mask,SC.frameToCanvas(points,f.width,f.height,cv.width,cv.height),now);
+    SIMAR.fc=null;if(SIMAR.tracker.ready(now))readTimecode(f);
   }catch(e){SIMAR.tracker.reset();SIMAR.error='Screen detection failed. Reload this page to retry.';}
 }
+// Exact timing: the sim shows its frame number as a strip of black/white cells (Gray code, so a camera exposure that
+// straddles two frames reads as one of them, never garbage). Read it from this camera frame through the homography
+// and draw the HUD of exactly that game frame. Every successful read also measures the real display + camera delay,
+// which is used whenever the strip cannot be read.
+function readTimecode(f){
+  const w=W,mk=w&&w.mk,tc=w&&w.tc,d=SIMAR.tracker.points;if(!PHX||!mk||!tc||!d)return;
+  if(!PHX.markers_homography(mk[0],mk[1],mk[2],mk[3],mk[4],mk[5],mk[6],mk[7],d[0][0],d[0][1],d[1][0],d[1][1],d[2][0],d[2][1],d[3][0],d[3][1]))return;
+  const Hm=new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9),c=SC.cover(f.width,f.height,cv.width,cv.height),r=tc[4]*0.22,pts=[];
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  for(let i=0;i<9;i++){const x=tc[0]+(tc[2]-tc[0])*i/8,y=tc[1]+(tc[3]-tc[1])*i/8;
+    for(const [ox,oy] of [[0,0],[-r,-r],[r,-r],[r,r],[-r,r]]){const p=SC.project(Hm,x+ox,y+oy);if(!p)return;
+      const fx=Math.round((p[0]-c.x)/c.scale),fy=Math.round((p[1]-c.y)/c.scale);if(fx<0||fy<0||fx>=f.width||fy>=f.height)return;
+      pts.push(fx,fy,i);x0=Math.min(x0,fx);y0=Math.min(y0,fy);x1=Math.max(x1,fx);y1=Math.max(y1,fy);}}
+  const bw=x1-x0+1,bh=y1-y0+1;if(bw*bh>400*400)return;
+  const img=f.getContext('2d').getImageData(x0,y0,bw,bh).data,L=new Float64Array(9);
+  for(let k=0;k<pts.length;k+=3){const q=((pts[k+1]-y0)*bw+pts[k]-x0)*4;L[pts[k+2]]+=img[q]*0.3+img[q+1]*0.59+img[q+2]*0.11;}
+  if(L[0]-L[1]<5*40)return;   // white and black reference cells too alike: glare or out of focus
+  const th=(L[0]+L[1])/2;let g=0;for(let i=2;i<9;i++)g=g<<1|(L[i]>th?1:0);
+  g^=g>>1;g^=g>>2;g^=g>>4;SIMAR.fc=g;SIMAR.fcAt=SIMAR.frameAt;}
+function simSnap(now){
+  if(SIMAR.fc==null||SIMAR.fcAt!==SIMAR.frameAt||clockOff==null)return null;
+  for(let i=SNAP.length-1;i>=0;i--){const sn=SNAP[i];if(sn.fc!==SIMAR.fc)continue;
+    const lag=(SIMAR.frameAt/1000-clockOff-sn.tm)*1000;if(lag<-20||lag>600)return null;
+    SIMAR.delay+=(clamp(lag,0,300)-SIMAR.delay)*0.1;SIMAR.sync=now;
+    if(now-(SIMAR.shown||0)>500){SIMAR.shown=now;$('simDelay').value=Math.round(SIMAR.delay/10)*10;$('simDelayValue').textContent=Math.round(SIMAR.delay)+' ms (auto)';}
+    return sn.w;}
+  return null;}
 function simPips(Wd,H,u){const cols=['#FF3B3B','#3BF03B','#3B6BFF','#F03BF0'],m=SIMAR.tracker.mask,locked=SIMAR.tracker.ready(performance.now());
-  cx.save();const x0=Wd/2-62*u,y0=H*0.04;cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(x0-8*u,y0-6*u,140*u,24*u);
+  cx.save();const x0=Wd/2-62*u,y0=H*0.04;cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(x0-8*u,y0-6*u,175*u,24*u);
   cols.forEach((c,i)=>{cx.beginPath();cx.arc(x0+i*16*u,y0+6*u,5*u,0,Math.PI*2);if(m>>i&1){cx.fillStyle=c;cx.fill();}else{cx.strokeStyle=c;cx.lineWidth=1.5*u;cx.stroke();}});
-  cx.fillStyle=locked?'#3BF08A':'#FFC247';cx.font=`700 ${10*u}px "B612 Mono", monospace`;cx.textBaseline='middle';cx.fillText(locked?'LOCKED':'SEARCHING',x0+62*u,y0+6*u);cx.restore();}
+  cx.fillStyle=locked?'#3BF08A':'#FFC247';cx.font=`700 ${10*u}px "B612 Mono", monospace`;cx.textBaseline='middle';cx.fillText(locked?(performance.now()-(SIMAR.sync||0)<400?'LOCKED · SYNC':'LOCKED'):'SEARCHING',x0+62*u,y0+6*u);cx.restore();}
 function simFrame(view,now,dt,Wd,H,u){
   const f=SIMAR.frame;
   if(SIMAR.frameAt){const c=SC.cover(f.width,f.height,Wd,H);cx.drawImage(f,c.x,c.y,f.width*c.scale,f.height*c.scale);}

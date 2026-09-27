@@ -1,4 +1,4 @@
-# Look-Ahead Radar
+# RM
 
 A helmet-visor HUD concept for F1 that uses the position data every car already sends to
 show danger in the next two or three corners: stopped cars, recovery vehicles, marshals and

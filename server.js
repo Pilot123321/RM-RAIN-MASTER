@@ -1,4 +1,4 @@
-// Look-Ahead Radar local server.
+// RM local server.
 // Serves the game to the Mac and a steering-wheel controller page to the phone,
 // and relays the phone's gyro + pedal input to the game over WebSocket.
 //   http://localhost:8080          game (Mac)
@@ -144,7 +144,7 @@ httpServer.listen(HTTP_PORT, () => {
     const s = https.createServer({ key: fs.readFileSync(key), cert: fs.readFileSync(crt) }, handler);
     attach(s); s.listen(HTTPS_PORT); httpsOk = true;
   } catch (e) { console.warn('HTTPS disabled (openssl failed):', e.message); }
-  console.log(`\nLook-Ahead Radar\n  Game (on this Mac):   http://localhost:${HTTP_PORT}`);
+  console.log(`\nRM\n  Game (on this Mac):   http://localhost:${HTTP_PORT}`);
   if (httpsOk) console.log(`  Phone over Wi-Fi:     ${urls().lan}   (tap Advanced -> Proceed once)`);
   console.log(`  Phone over USB:       ${urls().usb}   (needs USB debugging; adb reverse is set up automatically)\n`);
   adbTick(); setInterval(adbTick, 5000);

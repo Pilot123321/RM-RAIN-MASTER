@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="description" content="A look-ahead radar HUD for F1 in the wet: see stopped cars, marshals and hazards around blind corners before they become critical.">
 <meta name="theme-color" content="#0A0A0C">
-<title>Look-Ahead Radar</title>
+<title>RM</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@400;700&family=Saira+Condensed:wght@600;800&family=Titillium+Web:ital,wght@0,400;0,600;0,700;0,900;1,600;1,700&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
 
 <div class="wrap">
   <header class="topbar">
-    <h1 class="brand">Look-Ahead <span>Radar</span></h1>
+    <h1 class="brand" aria-label="RM">R<span>M</span></h1>
     <nav class="tabs" role="tablist" aria-label="Sections">
       <button role="tab" id="tabDrive" data-view="drive" aria-selected="true">Drive</button>
       <button role="tab" id="tabSetup" data-view="setup" aria-selected="false">Setup</button>
@@ -32,7 +32,7 @@
     <canvas id="drops" aria-hidden="true"></canvas>
     <div class="visorframe" aria-hidden="true"></div>
     <div id="rearfx" aria-hidden="true"></div>
-    <div class="calib" aria-hidden="true"><i class="c0"></i><i class="c1"></i><i class="c2"></i><i class="c3"></i></div>
+    <div class="calib" aria-hidden="true"><i class="c0"></i><i class="c1"></i><i class="c2"></i><i class="c3"></i><b class="tc" id="tc"><s></s><s></s><s></s><s></s><s></s><s></s><s></s><s></s><s></s></b></div>
     <div id="combiner" aria-hidden="true"></div>
     <canvas id="hud"></canvas>
     <div id="visor" aria-hidden="true"></div>
@@ -40,6 +40,7 @@
     <div class="status" id="status"></div>
     <div class="toast" id="toast" hidden></div>
     <button class="drop" id="dropBtn" hidden>Drop hazard ahead · X</button>
+    <button class="pcvisor" id="pcVisor" aria-pressed="false" title="Show the visor HUD on this screen (V)">Visor HUD <b>Off</b></button>
     <div class="touch" id="touch" hidden>
       <div><button data-k="left" aria-label="Steer left">◀</button><button data-k="right" aria-label="Steer right">▶</button></div>
       <div><button data-k="brake">Brake</button><button data-k="gas">Gas</button></div>
