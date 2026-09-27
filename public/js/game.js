@@ -1296,7 +1296,7 @@ function setPcVisor(on){ui.pcVisor=!!on;const b=$('pcVisor');b.setAttribute('ari
 let AC=null,eng=null;
 const ENG_LOOPS=['idle','low','high','load'];
 function audioStart(){
-  try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();AC.resume();
+  try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();soundGate();
     if(eng)return;
     const master=AC.createGain();master.gain.value=0.9;
     const comp=AC.createDynamicsCompressor();comp.threshold.value=-16;comp.knee.value=12;comp.ratio.value=4;comp.attack.value=0.004;comp.release.value=0.12;
@@ -1331,8 +1331,18 @@ function rpmFromSpeed(v){let gi=1;while(gi<GEAR_V.length-1&&v>GEAR_V[gi])gi++;co
 function pop(t,amp){const s=AC.createBufferSource();s.buffer=eng.nb;const f=AC.createBiquadFilter();f.type='bandpass';f.frequency.value=500+Math.random()*1400;f.Q.value=1.2;
   const g=AC.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(amp,t+0.004);g.gain.exponentialRampToValueAtTime(0.001,t+0.05+Math.random()*0.04);
   s.connect(f);f.connect(g);g.connect(eng.comp);s.start(t,Math.random()*1.5);s.stop(t+0.12);}
+/* The audio engine runs only while it should be heard: sound switched on and the page visible. Loops keep playing
+   by themselves in Web Audio, so a hidden tab (no animation frames, no updates) used to leave the last engine and
+   other-car sound droning on, even after sound was switched off elsewhere. Suspending the context stops every
+   voice at once; a watchdog also mutes the output if the game loop stalls for any other reason. */
+let audioSeen=0;
+function soundGate(){if(!AC)return;const want=ui.sound&&document.visibilityState==='visible';
+  if(want&&AC.state==='suspended')AC.resume();else if(!want&&AC.state==='running')AC.suspend();}
+document.addEventListener('visibilitychange',soundGate);
+setInterval(()=>{if(eng&&AC&&performance.now()-audioSeen>400)eng.master.gain.setTargetAtTime(0,AC.currentTime,0.02);},200);
 function audioUpdate(w,running){
   if(!eng||!AC)return;const now=AC.currentTime,on=ui.sound&&running&&!w.done,P=w.player;
+  audioSeen=performance.now();eng.master.gain.setTargetAtTime(ui.sound?0.9:0,now,0.02);
   eng.ng.gain.setTargetAtTime(ui.sound?Math.min(0.12,0.01+0.03*w.rain+0.0009*P.v*(ui.cam==='cockpit'?1:0.6)):0,now,0.2);eng.nf.frequency.setTargetAtTime(500+P.v*14,now,0.3);
   const V=eng.voices;if(!V){eng.lvl.gain.setTargetAtTime(0,now,0.1);return;}
   let rpm=P.rpm,gear=P.gear;if(!rpm){const e=rpmFromSpeed(P.v);rpm=e.rpm;gear=e.gear;}
@@ -1354,7 +1364,7 @@ function audioUpdate(w,running){
   // the nearest other car within 120 m
   const O=eng.other;if(O){let best=null,bd=121;for(const c of w.traffic){const d=dSigned(P.s,c.s),r=Math.hypot(d,c.lat-P.lat);if(r<bd){bd=r;best={c,d};}}
     if(on&&best){const c=best.c,e=rpmFromSpeed(c.v),closing=(best.d>0?P.v-c.v:c.v-P.v),dop=clamp(1+closing/343,0.8,1.25);
-      O.v.src.playbackRate.setTargetAtTime(clamp(e.rpm/O.v.rpm*dop,0.25,3.4),now,0.05);O.v.g.gain.setTargetAtTime(0.5/(1+bd/6),now,0.08);
+      O.v.src.playbackRate.setTargetAtTime(clamp(e.rpm/O.v.rpm*dop,0.25,3.4),now,0.05);O.v.g.gain.setTargetAtTime(0.3/(1+(bd/8)*(bd/8)),now,0.08);   // inverse square with distance
       O.f.frequency.setTargetAtTime(900+9000/(1+bd/10),now,0.1);if(O.pan)O.pan.pan.setTargetAtTime(clamp((c.lat-P.lat)/(Math.abs(best.d)+4),-0.9,0.9),now,0.08);}
     else O.v.g.gain.setTargetAtTime(0,now,0.1);}
 }
@@ -1375,8 +1385,8 @@ seg('hudOn','hudOff','hud',true,false); seg('aidOn','aidOff','aids',true,false);
 [6,12,20].forEach(n=>$('tr'+n).addEventListener('click',()=>{ui.traffic=n;syncControls();if(running)liveTraffic();else resetWorld();}));
 $('camCock').addEventListener('click',()=>{ui.cam='cockpit';syncControls();});
 $('camChase').addEventListener('click',()=>{ui.cam='chase';syncControls();});
-$('sndOn').addEventListener('click',()=>{ui.sound=true;audioStart();syncControls();});
-$('sndOff').addEventListener('click',()=>{ui.sound=false;syncControls();});
+$('sndOn').addEventListener('click',()=>{ui.sound=true;audioStart();soundGate();syncControls();});
+$('sndOff').addEventListener('click',()=>{ui.sound=false;soundGate();syncControls();});
 $('rain').addEventListener('input',e=>{ui.rain=e.target.value/100;syncControls();world.rain=ui.rain;world.opts.rain=ui.rain;paintSky(ui.rain);if(!running)renderIntro();});
 // settings apply straight away, also in the middle of a run
 function applyLive(){
@@ -1558,7 +1568,8 @@ let FC=0;const TC=[...document.querySelectorAll('#tc s')];
 function tcTick(){FC=(FC+1)&127;const g=FC^(FC>>1);for(let i=0;i<7;i++)TC[i+2].classList.toggle('on',!!((g>>(6-i))&1));}
 function tcGeom(){const r=stage.getBoundingClientRect(),a=TC[0].getBoundingClientRect(),b=TC[8].getBoundingClientRect();
   return [r2(a.left+a.width/2-r.left),r2(a.top+a.height/2-r.top),r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top),r2(a.width)];}
-function updateCalib(){let on=calibKey;for(const d of REMOTE.dev.values())if(d.sim)on=true;document.body.classList.toggle('calib-on',on);
+// the dots show while a phone is in AR (it looks for them and switches to the sim overlay by itself) or on request
+function updateCalib(){let on=calibKey;for(const d of REMOTE.dev.values())if(d.sim||d.ar)on=true;document.body.classList.toggle('calib-on',on);
   const b=$('calibBtn');b.setAttribute('aria-pressed',on?'true':'false');b.querySelector('b').textContent=on?'On':'Off';}
 $('calibBtn').addEventListener('click',e=>{calibKey=!calibKey;updateCalib();e.currentTarget.blur();});
 // the edge dots: [x, y, colour class] each, in stage pixels
@@ -1608,7 +1619,7 @@ async function remoteInit(){
         if(m.n>0&&was===0&&REMOTE.gone){clearTimeout(REMOTE.gone);REMOTE.gone=0;}  // quick reconnect: nothing to announce
         else if(m.n>0&&was===0){if(!running){ui.driver='drive';ui.steer='full';syncControls();applyLive();}toast('<b class="info">Phone wheel linked</b>Full steering: tilt to turn the wheels. Traction and stability control are on.');}
         if(m.n===0&&was>0){clearTimeout(REMOTE.gone);REMOTE.gone=setTimeout(()=>{REMOTE.gone=0;if(!REMOTE.phones)toast('<b class="info">Phone wheel disconnected</b>Keyboard controls still work.');},4000);}}
-      else if(m.t==='cmd'){if(m.c==='start'&&!running)startRun();else if(m.c==='stop'&&running)stopRun();else if(m.c==='drop')dropHazard();else if(m.c==='ar'){phoneDev(m.id).ar=!!m.on;phoneRoles();}else if(m.c==='sim'){phoneDev(m.id).sim=!!m.on;updateCalib();}else if(m.c==='cam'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}}};
+      else if(m.t==='cmd'){if(m.c==='start'&&!running)startRun();else if(m.c==='stop'&&running)stopRun();else if(m.c==='drop')dropHazard();else if(m.c==='ar'){phoneDev(m.id).ar=!!m.on;phoneRoles();updateCalib();}else if(m.c==='sim'){phoneDev(m.id).sim=!!m.on;updateCalib();}else if(m.c==='cam'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}}};
     // the cloud relay recycles connections every few minutes: only count the phones as gone if it stays down
     ws.onclose=()=>{clearTimeout(lost);lost=setTimeout(()=>{REMOTE.phones=0;REMOTE.dev.clear();phoneRoles();updateCalib();},info.cloud?5000:0);setTimeout(connect,info.cloud?300:1000);};};
   connect();

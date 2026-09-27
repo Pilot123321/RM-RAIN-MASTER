@@ -18,7 +18,7 @@ SIG = {
     "trace_points": (ctypes.POINTER(ctypes.c_int), []),
     "markers_frame": (ctypes.POINTER(ctypes.c_uint8), []), "markers_find": (I, [I, I]), "markers_found": (PD, []),
     "markers_homography": (I, [D] * 16), "markers_hom": (PD, []),
-    "markers_find_near": (I, [I, I, I, D, D, D]), "markers_near": (PD, []), "markers_fit_in": (PD, []), "markers_fit_out": (PD, []),
+    "markers_find_near": (I, [I, I, I, D, D, D]), "markers_cands": (PD, []), "markers_near": (PD, []), "markers_fit_in": (PD, []), "markers_fit_out": (PD, []),
     "markers_fit": (I, [I, D, D, D, D, I]),
     "veh_state": (PD, []), "veh_curv": (PD, []), "veh_set_track": (None, [I, D]), "veh_reset": (None, []),
     "veh_step": (None, [D, D, D, I, D, D]), "veh_set_water": (None, [D]),

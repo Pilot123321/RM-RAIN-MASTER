@@ -13,7 +13,7 @@ namespace {
 constexpr int MW = 640, MH = 480, MN = MW * MH;
 uint8_t frame[MN * 4], cls[MN];
 int lab[MN], que[MN];
-double found[8], hom[9];
+double found[8], hom[9], cands[4 * 4 * 3];   // best four candidates per colour: x, y, score (0 = none)
 const double HUE[4] = {0, 120, 225, 300};  // red, green, blue, magenta
 
 int classify(int i) {
@@ -107,6 +107,7 @@ double fitHom(int n, double cx, double cy, double rn, double k1, double *h) {
 extern "C" {
 EXPORT(markers_frame) uint8_t *markers_frame(void) { return frame; }
 EXPORT(markers_found) double *markers_found(void) { return found; }
+EXPORT(markers_cands) double *markers_cands(void) { return cands; }
 EXPORT(markers_hom) double *markers_hom(void) { return hom; }
 EXPORT(markers_near) double *markers_near(void) { return nearPt; }
 EXPORT(markers_fit_in) double *markers_fit_in(void) { return fitIn; }
@@ -170,6 +171,7 @@ EXPORT(markers_fit) int markers_fit(int n, double cx, double cy, double rn, doub
 /* returns a bit mask of the markers found (bit k = colour class k); centres in markers_found() */
 EXPORT(markers_find) int markers_find(int W, int H) {
   for (double &v : found) v = 0;
+  for (double &v : cands) v = 0;
   if (W < 8 || H < 8 || W > MN / H) return 0;
   const int n = W * H;
   for (int i = 0; i < n; i++) { cls[i] = (uint8_t)classify(i); lab[i] = -1; }
@@ -189,6 +191,12 @@ EXPORT(markers_find) int markers_find(int W, int H) {
     }
     double score = blobScore(W, H, area, sx, sy, sxx, sxy, syy, x0, x1, y0, y1, n * 0.025);
     if (score <= 0) continue;
+    {  // keep the top four per colour: scenery can outscore a real dot, so the phone checks combinations against the edge dots
+      double *cc = cands + (c - 1) * 12; int k = 4;
+      while (k > 0 && cc[(k - 1) * 3 + 2] < score) k--;
+      if (k < 4) { for (int j = 3; j > k; j--) for (int q = 0; q < 3; q++) cc[j * 3 + q] = cc[(j - 1) * 3 + q];
+        cc[k * 3] = sx / area + 0.5; cc[k * 3 + 1] = sy / area + 0.5; cc[k * 3 + 2] = score; }
+    }
     if (score > bestScore[c - 1]) { bestScore[c - 1] = score; found[2 * (c - 1)] = sx / area + 0.5; found[2 * (c - 1) + 1] = sy / area + 0.5; mask |= 1 << (c - 1); }
   }
   return mask;

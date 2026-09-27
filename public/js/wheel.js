@@ -134,6 +134,10 @@ function drawHud(now){
   const dt=Math.min(0.1,(now-(drawHud.last||now))/1000);drawHud.last=now;
   // smooth playback: interpolate between buffered updates instead of snapping to each one
   if(arOn&&S.sim)simCapture(now);
+  else if(arOn&&!S.simBlock&&now-SIMAR.t>=120){simCapture(now);   // AR keeps looking for the sim's dots
+    if(SIMAR.tracker.ready(now)){S.simAuto=true;setSim(true,true);}}
+  if(arOn&&S.sim&&S.simAuto){if(SIMAR.tracker.ready(now))SIMAR.lastLock=now;else if(now-(SIMAR.lastLock||now)>1500){S.simAuto=false;setSim(false);}}
+  if(arOn&&S.sim&&SIMAR.tracker.ready(now))DO.center=true;   // looking at the sim = straight ahead when AR takes over again
   const view=(arOn&&S.sim&&simSnap(now))||sampleWorld(arOn&&S.sim&&SIMAR.frameAt?SIMAR.frameAt:now);
   if(view.hazards&&view.near)view.near=view.hazards[view.hazards.indexOf(view.near)]||view.near;
   HUD.setWorld(view);window.__view=view;   // for debugging from the browser console
@@ -300,14 +304,16 @@ $('simDelay').value=SIMAR.delay;$('simDelayValue').textContent=SIMAR.delay+' ms'
 $('simDelay').oninput=e=>{SIMAR.delay=clamp(+e.target.value,0,300);$('simDelayValue').textContent=SIMAR.delay+' ms';try{localStorage.setItem('rw.simDelay',SIMAR.delay);}catch(e){}};
 fetch('/physics.wasm').then(r=>{if(!r.ok)throw new Error('Detector download failed');return r.arrayBuffer();}).then(b=>WebAssembly.instantiate(b,{})).then(({instance})=>{
   const p=instance.exports;
-  for(const name of ['markers_frame','markers_find','markers_found','markers_homography','markers_hom'])if(typeof p[name]!=='function')throw new Error('Detector version mismatch');
+  for(const name of ['markers_frame','markers_find','markers_found','markers_cands','markers_homography','markers_hom','markers_find_near','markers_near','markers_fit','markers_fit_in','markers_fit_out'])if(typeof p[name]!=='function')throw new Error('Detector version mismatch');
   if(p._initialize)p._initialize();PHX=p;
 }).catch(()=>{SIMAR.error='Could not load the screen detector. Reload this page to retry.';});
 function resetSim(){SIMAR.tracker.reset();SIMAR.t=-Infinity;SIMAR.frameAt=0;SIMAR.videoTime=-1;SIMAR.geometry='';}
-function setSim(on){on=!!on&&arOn;if(!!S.sim===on)return;S.sim=on;resetSim();setCalibration(false);$('simControls').hidden=true;
+function setSim(on,keepLock){on=!!on&&arOn;if(!!S.sim===on)return;S.sim=on;if(keepLock){SIMAR.lastLock=performance.now();SIMAR.fc=null;}else resetSim();setCalibration(false);$('simControls').hidden=true;
   document.body.classList.toggle('sim',on);$('bSim').setAttribute('aria-pressed',on?'true':'false');$('bCenter').textContent=on?'Reacquire':arOn?'Recenter':'Center';
   send({t:'cmd',c:'sim',on});}
-$('bSim').onclick=()=>setSim(!S.sim);
+// SIM comes on by itself when the camera finds the dots; the button still forces it on, or off (and then stays off
+// until pressed again)
+$('bSim').onclick=()=>{if(S.sim){S.simBlock=true;S.simAuto=false;setSim(false);}else{S.simBlock=false;S.simAuto=false;setSim(true);}};
 window.__simar=SIMAR;   // for debugging from the browser console
 function simCapture(now){
   if(video.readyState<2||!video.videoWidth||!video.videoHeight||now-SIMAR.t<30)return;
@@ -325,12 +331,33 @@ function simCapture(now){
   const gc=g.getContext('2d',{willReadFrequently:true});gc.drawImage(f,0,0,w,h);
   try{
     new Uint8Array(PHX.memory.buffer,PHX.markers_frame(),w*h*4).set(gc.getImageData(0,0,w,h).data);
-    const mask=PHX.markers_find(w,h),F=new Float64Array(PHX.memory.buffer,PHX.markers_found(),8);
-    const points=[0,1,2,3].map(i=>[F[2*i]*f.width/w,F[2*i+1]*f.height/h]);
-    SIMAR.tracker.update(mask,SC.frameToCanvas(points,f.width,f.height,cv.width,cv.height),now);
+    let mask=PHX.markers_find(w,h);const F=new Float64Array(PHX.memory.buffer,PHX.markers_found(),8);
+    let points=SC.frameToCanvas([0,1,2,3].map(i=>[F[2*i]*f.width/w,F[2*i+1]*f.height/h]),f.width,f.height,cv.width,cv.height);
+    if(mask===15&&W&&W.mk&&W.mx&&W.scr){const pick=pickCorners(f,w,h);if(pick)points=pick;else mask=0;}
+    SIMAR.tracker.update(mask,points,now);
     SIMAR.fc=null;SIMAR.model=null;if(SIMAR.tracker.ready(now)){fitModel(f,w,h);readTimecode(f);}
   }catch(e){SIMAR.tracker.reset();SIMAR.error='Screen detection failed. Reload this page to retry.';}
 }
+// Which blobs are the corners: scenery (a kerb, a sponsor board, a HUD graphic) can look more dot-like than a real
+// corner dot, so the detector keeps its four best candidates per colour. Combinations are tried best first; one is
+// accepted only if it makes a sane screen and the edge dots then turn up where it predicts them (at least three of
+// the six, or all that are listed). A lookalike blob cannot pass that.
+function pickCorners(f,w,h){
+  const C=new Float64Array(PHX.memory.buffer,PHX.markers_cands(),48),c=SC.cover(f.width,f.height,cv.width,cv.height);
+  const toCanvas=(gx,gy)=>[c.x+gx*f.width/w*c.scale,c.y+gy*f.height/h*c.scale],toGrab=(X,Y)=>[(X-c.x)/c.scale*w/f.width,(Y-c.y)/c.scale*h/f.height];
+  const L=[0,1,2,3].map(k=>{const o=[];for(let j=0;j<4;j++){const sc=C[k*12+j*3+2];if(sc>0)o.push({p:toCanvas(C[k*12+j*3],C[k*12+j*3+1]),sc});}return o;});
+  if(L.some(l=>!l.length))return null;
+  const combos=[];for(const a of L[0])for(const b of L[1])for(const d of L[2])for(const e of L[3])combos.push({pts:[a.p,b.p,d.p,e.p],sc:a.sc+b.sc+d.sc+e.sc});
+  combos.sort((x,y)=>y.sc-x.sc);
+  const mk=W.mk,mx=W.mx,gw=W.scr[0],gh=W.scr[1],need=Math.min(3,mx.length/3);let tries=0;
+  for(const cb of combos){if(!SC.validQuad(cb.pts))continue;if(++tries>16)break;const d=cb.pts;
+    if(!PHX.markers_homography(mk[0],mk[1],mk[2],mk[3],mk[4],mk[5],mk[6],mk[7],d[0][0],d[0][1],d[1][0],d[1][1],d[2][0],d[2][1],d[3][0],d[3][1]))continue;
+    const Hm=Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9));if(!SC.validHomography(Hm,gw,gh))continue;
+    const cg=d.map(q=>toGrab(q[0],q[1]));let ok=0;
+    for(let i=0;i<mx.length;i+=3){const p=SC.project(Hm,mx[i],mx[i+1]);if(!p)continue;const g=toGrab(p[0],p[1]);
+      const rad=clamp(0.3*Math.min(...cg.map(q=>Math.hypot(q[0]-g[0],q[1]-g[1]))),5,40);if(PHX.markers_find_near(w,h,mx[i+2],g[0],g[1],rad))ok++;}
+    if(ok>=need)return d.map(q=>q.slice());}
+  return null;}
 // Lens-true mapping: the corners give a first homography, which predicts where the six edge dots are; each is looked
 // for in a small window there (C++), and all dots found fit the homography plus the lens bend (k1) together. A phone
 // lens bends straight lines a little, which a 4-point homography cannot follow; that is what made the HUD's corners
@@ -356,7 +383,17 @@ function fitModel(f,w,h){
     SIMAR.k1+=(FO()[0]-SIMAR.k1)*0.08;if(performance.now()-(SIMAR.k1Saved||0)>3000){SIMAR.k1Saved=performance.now();try{localStorage.setItem('rw.k1',SIMAR.k1.toFixed(4));}catch(e){}}}
   let n=pairs.length;if(!PHX.markers_fit(n,cxc,cyc,rn,SIMAR.k1,0))return;
   if(FO()[1]>4&&n>4){n=4;if(!PHX.markers_fit(4,cxc,cyc,rn,SIMAR.k1,0))return;}   // a bad edge dot: fall back to the corners
-  SIMAR.model={H:Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9)),k1:SIMAR.k1,cx:cxc,cy:cyc,rn,n,at:SIMAR.frameAt};}
+  SIMAR.model={H:Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9)),k1:SIMAR.k1,cx:cxc,cy:cyc,rn,n,at:SIMAR.frameAt};
+  autoFov(SIMAR.model,f.width*c.scale);}
+// The dots also calibrate plain AR: the screen is a rectangle, so its two edge directions through the camera must
+// be perpendicular and equally scaled. With the principal point at the frame centre that fixes the focal length
+// (the standard homography-to-intrinsics constraints), i.e. the camera's real field of view, which AR then uses
+// instead of a guess. Only well-conditioned views count (screen seen at an angle, both constraints agreeing).
+function autoFov(M,frameW){const h=M.H,a=h[0]-M.cx*h[6],b=h[1]-M.cx*h[7],c=h[3]-M.cy*h[6],d=h[4]-M.cy*h[7],e=h[6],g=h[7];
+  const f1=-(a*b+c*d)/(e*g),f2=(a*a+c*c-b*b-d*d)/(g*g-e*e);
+  if(!(f1>0&&f2>0&&isFinite(f1)&&isFinite(f2))||f1/f2<0.8||f1/f2>1.25)return;
+  const hf=2*Math.atan(frameW/2/Math.sqrt((f1+f2)/2))*180/Math.PI;if(hf<40||hf>110)return;
+  CAL.hfov+=(hf-CAL.hfov)*0.05;SIMAR.fovN=(SIMAR.fovN||0)+1;if(SIMAR.fovN%30===0)saveCal();}
 // screen point -> camera canvas through the fitted model: homography, then the lens bend (inverse of the fit's
 // undistortion, a few fixed-point steps)
 function modelMap(M,x,y){const u=SC.project(M.H,x,y);if(!u)return null;if(!M.k1)return u;

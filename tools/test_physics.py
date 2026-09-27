@@ -216,6 +216,10 @@ np.ctypeslib.as_array(LIB.markers_frame(), shape=(W * H * 4,))[:] = fr.reshape(-
 mask = LIB.markers_find(W, H); F = np.ctypeslib.as_array(LIB.markers_found(), shape=(8,)).reshape(4, 2)
 err = max(np.hypot(F[k][0] - 0.5 - dots[k][0][0], F[k][1] - 0.5 - dots[k][0][1]) for k in range(4))
 check(mask == 15 and err < 1.0, f"finds all four dots and ignores a red stripe and a blue block (max centre error {err:.2f} px)")
+CANDS = np.ctypeslib.as_array(LIB.markers_cands(), shape=(4, 4, 3))
+check(all(any(c[2] > 0 and np.hypot(c[0] - 0.5 - dots[k][0][0], c[1] - 0.5 - dots[k][0][1]) < 1.0 for c in CANDS[k]) for k in range(4))
+      and all(np.all(np.diff(CANDS[k][:, 2]) <= 0) for k in range(4)),
+      "keeps ranked candidates per colour, the real dot among them (the phone verifies them against the edge dots)")
 
 def detect_markers(frame):
     h, w, _ = frame.shape
