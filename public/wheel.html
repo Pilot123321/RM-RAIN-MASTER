@@ -21,6 +21,12 @@
   <button id="bSetup">Setup</button><button id="bLock" class="more" hidden>Lock 45°</button><button id="bInv" class="more" hidden>Invert</button><button id="bFfb" class="more" hidden>Feedback</button><button id="bFlip" class="more" hidden>Flip look</button><button id="bVRCam" class="more" hidden>VR camera</button>
 </div>
 <div class="glow" id="glow"></div>
+<div id="simControls" hidden>
+  <label for="simDelay">Overlay delay</label>
+  <input id="simDelay" type="range" min="0" max="300" step="10" value="110">
+  <output id="simDelayValue" for="simDelay">110 ms</output>
+  <span>Adjust if the HUD leads or trails the moving scene.</span>
+</div>
 <div id="rearfx" aria-hidden="true"></div>
 <p id="recenter" aria-live="polite">Centred</p>
 <div class="sheet" id="sheet">
@@ -32,6 +38,7 @@
   </div>
 </div>
 <script src="/hud.js"></script>
+<script src="/js/sim-calibration.js?v=20260927"></script>
 <script src="/js/wheel.js"></script>
 </body>
 </html>

@@ -10,6 +10,7 @@ let PAIR=new URLSearchParams(location.search).get('k')||'';try{if(PAIR)sessionSt
 let PID='';try{PID=sessionStorage.getItem('rw.id')||'';}catch(e){}
 if(!PID){PID=Math.random().toString(36).slice(2,10);try{sessionStorage.setItem('rw.id',PID);}catch(e){}}
 let CAL={pitchOff:0,hfov:66,camH:1.05,yawOff:0};try{Object.assign(CAL,JSON.parse(localStorage.getItem('rw.arcal2')||'{}'));}catch(e){}
+for(const [key,lo,hi,def] of [['pitchOff',-0.6,0.6,0],['hfov',35,110,66],['camH',0.2,3,1.05],['yawOff',-Math.PI,Math.PI,0]])CAL[key]=Number.isFinite(CAL[key])?clamp(CAL[key],lo,hi):def;
 function saveCal(){try{localStorage.setItem('rw.arcal2',JSON.stringify(CAL));}catch(e){}}
 const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,lock:lockSaved,inv:invSaved,ffb:ffbSaved,yawInv:flipSaved,vr:false,vrCam:vrCamSaved,touchSteer:null,games:0,running:false,alert:0};
 
@@ -17,10 +18,10 @@ const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,lo
 let ws=null;
 function connect(){
   ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=wheel&id='+PID+'&k='+encodeURIComponent(PAIR));
-  ws.onopen=()=>{status();hello();if(arOn)send({t:'cmd',c:'ar',on:true});};
+  ws.onopen=()=>{resetWorld();S.unpaired=false;status();hello();};
   ws.onmessage=e=>{if(typeof e.data!=='string')return;let m;try{m=JSON.parse(e.data);}catch(_){return;}
     if(m.t==='track'){onTrack(m);return;} if(m.t==='w'){onState(m);return;}
-    if(m.t==='games'){S.games=m.n;status();hello();}
+    if(m.t==='games'){if(S.games!==m.n)resetWorld();S.games=m.n;status();hello();}
     else if(m.t==='st'){S.running=m.r;S.ap=!!m.ap;S.wh=m.wh||0;$('bRun').textContent=m.r?'Stop':'Start';
       if(m.a===2&&S.alert!==2&&navigator.vibrate){navigator.vibrate([90,60,90]);FFB.hold=performance.now()+260;}
       if(m.w&&!S.wall&&!S.ffb&&navigator.vibrate)navigator.vibrate(40);S.wall=m.w;
@@ -28,36 +29,47 @@ function connect(){
       const nowT=performance.now();if(m.a===2)S.redUntil=nowT+800;const lvl=m.a===2||nowT<(S.redUntil||0)?2:m.a;
       if(lvl!==S.shownLvl){S.shownLvl=lvl;const g=$('glow');g.style.setProperty('--gc',lvl===2?'var(--brake)':'var(--amb)');g.style.opacity=lvl?(lvl===2?0.9:0.45):0;}
       S.alert=m.a;}};
-  ws.onclose=e=>{S.games=0;S.unpaired=e.code===4001;status();setTimeout(connect,S.unpaired?5000:1000);};
+  ws.onclose=e=>{S.games=0;S.unpaired=e.code===4001;resetWorld();status();setTimeout(connect,S.unpaired?5000:1000);};
   ws.onerror=()=>{};
 }
 let sent=0;
-function hello(){send({t:'hello',w:innerWidth,h:innerHeight,dpr:devicePixelRatio||1});}
+function hello(){send({t:'hello',w:innerWidth,h:innerHeight,dpr:devicePixelRatio||1,ar:arOn,sim:!!S.sim});
+  // Replay modes both after a phone reconnect and after the game page reloads.
+  send({t:'cmd',c:'ar',on:arOn});send({t:'cmd',c:'sim',on:!!S.sim});}
 addEventListener('resize',()=>setTimeout(hello,200));
 function status(){const open=ws&&ws.readyState===1,ok=open&&S.games>0;$('dot').classList.toggle('ok',ok);
   $('conn').textContent=S.unpaired?'Not paired: scan the QR code on the Mac again':!open?'Cannot reach '+location.host:!S.games?'Server OK, open the game on the Mac':`Linked · ${arOn?(S.ap?'AR view · autopilot driving':'AR view · wheel phone drives'):'Wheel'} · HUD ${fps} fps · v8`;
-  $('hudwait').hidden=!!(trackOk&&W);
+  $('hudwait').hidden=!!(trackOk&&W)&&!cameraError;
+  if(cameraError){$('hudwait').textContent=cameraError;return;}
   if(open&&S.games&&!trackOk)$('hudwait').textContent='Linked, waiting for the track. Reload the game page on the Mac.';
   if(!HUD)$('hudwait').textContent='Could not load the HUD code from the Mac. Reload this page.';}
 setInterval(status,500);
 // ---- native HUD: same drawing code as the game, fed by track + state messages
 const HUD=window.makeHUD?window.makeHUD():null;if(HUD)HUD.setCalm(true);
 const _unused=0, cv=$('hudcv'), cx=cv.getContext('2d'), video=$('cam');
-let arOn=false,camStream=null;
+let arOn=false,camStream=null,cameraError='',cameraRequest=0;
 let frames=0,fps=0,msgs=0,W=null,Wt=0,trackOk=false;setInterval(()=>{fps=frames;frames=0;},1000);
 function fitCanvas(){const d=Math.min(devicePixelRatio||1,1.5);   // 1.5x is sharp enough and much cheaper to fill every frame
   cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);}
 addEventListener('resize',fitCanvas);fitCanvas();
-function onTrack(t){if(!HUD)return;HUD.setTrack(t);trackOk=true;}
+let trackSource=null,trackRevision=null,worldRevision=null;
+function resetWorld(){SNAP.length=0;OFFS.length=0;clockOff=null;W=null;trackOk=false;trackSource=null;trackRevision=null;worldRevision=null;resetSim();}
+function onTrack(t){if(!HUD)return;
+  if(!trackOk||t.src!==trackSource||t.trackRev!==trackRevision){SNAP.length=0;OFFS.length=0;clockOff=null;W=null;worldRevision=null;resetSim();}
+  HUD.setTrack(t);trackSource=t.src;trackRevision=t.trackRev;trackOk=true;}
 const SNAP=[],OFFS=[];let clockOff=null;
-function onState(m){msgs++;const hz=m.hz.map(h=>({type:h[0],s:h[1],lat:h[2],yaw:h[3],halfLen:h[4],halfW:h[5],vis:!!h[6],gone:!!h[7],avoid:h[8],vpass:h[9],label:h[10]}));
+function onState(m){
+  if(!trackOk||m.src!==trackSource||m.trackRev!==trackRevision)return;
+  if(worldRevision!==m.worldRev){SNAP.length=0;worldRevision=m.worldRev;}
+  if(SNAP.length&&m.tw!=null&&m.tw/1000<SNAP[SNAP.length-1].tm){SNAP.length=0;OFFS.length=0;clockOff=null;}
+  msgs++;const hz=m.hz.map(h=>({type:h[0],s:h[1],lat:h[2],yaw:h[3],halfLen:h[4],halfW:h[5],vis:!!h[6],gone:!!h[7],avoid:h[8],vpass:h[9],label:h[10]}));
   const p=m.p,rd=m.rd;let radar=null;
   if(rd){const dets=[],tracks=[];for(let i=0;i<rd.d.length;i+=3)dets.push({x:rd.d[i],z:rd.d[i+1],st:!!rd.d[i+2]});
     for(let i=0;i<rd.k.length;i+=3)tracks.push({x:rd.k[i],z:rd.k[i+1],conf:true,barrier:false,obj:!!rd.k[i+2]});radar={ox:rd.o[0],oz:rd.o[1],rng:rd.g,att:rd.a,dets,tracks};}
   if(m.ffb){FFB.v=m.ffb;FFB.t=performance.now();}if(m.scr)S.scr=m.scr;
   const behind=m.bh?{d:m.bh[0],side:m.bh[1],cl:m.bh[2]}:null;
   if(behind&&!S.behind&&S.running&&navigator.vibrate){navigator.vibrate([30,70,30]);FFB.hold=performance.now()+160;}S.behind=behind;rearGlow($('rearfx'),REAR,S.running?behind:null);
-  W={player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null,lapc:p[7]||0,brk:p[8]||0,thr:p[9]||0,gear:p[10]>=0?p[10]:p[10]===-2?0:null,rev:p[10]===-2,rpm:p[11]||0,beta:p[12]||0,steer:p[13]||0},radar,behind,mk:m.mk||null,cm:m.cm||null,spray:m.sp||0,flags:m.fg?Uint8Array.from(m.fg.slice(1)):null,secLen:m.fg?m.fg[0]:0,
+  W={player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null,lapc:p[7]||0,brk:p[8]||0,thr:p[9]||0,gear:p[10]>=0?p[10]:p[10]===-2?0:null,rev:p[10]===-2,rpm:p[11]||0,beta:p[12]||0,steer:p[13]||0},radar,behind,mk:m.mk||null,scr:m.scr||null,fov:m.fov||60,cm:m.cm||null,spray:m.sp||0,flags:m.fg?Uint8Array.from(m.fg.slice(1)):null,secLen:m.fg?m.fg[0]:0,
     traffic:m.tr.map(c=>({s:c[0],lat:c[1],latV:c[2],v:c[3],vis:!!c[4],closing:!!c[5],lapc:c[6]||0})),hazards:hz,alert:m.a,near:m.ni>=0?hz[m.ni]:null,dNear:m.dn,
     vis:m.vis,flagOn:!!m.fo,sc:{flag:m.fl||null},opts:{driver:m.dr?'drive':'model',hud:m.hd!==0},t:m.tm};
   Wt=performance.now();if(HUD)HUD.NAV.zoom=m.z||1;
@@ -65,14 +77,15 @@ function onState(m){msgs++;const hz=m.hz.map(h=>({type:h[0],s:h[1],lat:h[2],yaw:
   // against the monitor). The game stamps each update with its wall clock; the smallest arrival delay seen over the
   // last few seconds gives the offset between the two clocks without network jitter.
   const tk=m.tw!=null?m.tw/1000:m.tm;OFFS.push(Wt/1000-tk);while(OFFS.length>150)OFFS.shift();clockOff=Math.min(...OFFS);
-  SNAP.push({tm:tk,w:W});while(SNAP.length>16)SNAP.shift();}
+  SNAP.push({tm:tk,w:W});while(SNAP.length>90)SNAP.shift();}
 function sampleWorld(now){
-  if(!SNAP.length||clockOff==null)return W;const rt=now/1000-clockOff-(S.sim?(CAM_LAT+DISP_LAT)/1000:0.06),L=HUD.wrapS,dS=HUD.dSigned;
+  if(!SNAP.length||clockOff==null)return W;const rt=now/1000-clockOff-(S.sim?SIMAR.delay/1000:0.06),L=HUD.wrapS,dS=HUD.dSigned;
   let i=SNAP.length-1;while(i>0&&SNAP[i-1].tm>rt)i--;
   const B=SNAP[i],A=i>0?SNAP[i-1]:null;
-  if(!A||rt>=B.tm){const e=Math.min(0.15,Math.max(0,rt-B.tm)),P=B.w.player;   // small extrapolation if the next update is late
+  if(!A||rt>=B.tm){const e=S.sim?0:Math.min(0.15,Math.max(0,rt-B.tm)),P=B.w.player;   // SIM keeps camera and world from the same snapshot
     return Object.assign({},B.w,{player:Object.assign({},P,{s:L(P.s+P.v*e),lat:P.lat+(P.latV||0)*e}),traffic:B.w.traffic.map(c=>Object.assign({},c,{s:L(c.s+c.v*e)})),dNear:B.w.dNear-P.v*e});}
   if(rt<=A.tm)return A.w;
+  if(JSON.stringify(A.w.scr)!==JSON.stringify(B.w.scr)||JSON.stringify(A.w.mk)!==JSON.stringify(B.w.mk))return A.w;
   const k=(rt-A.tm)/Math.max(1e-3,B.tm-A.tm),lp=(a,b)=>a+(b-a)*k,ls=(a,b)=>L(a+dS(a,b)*k);
   const pa=A.w.player,pb=B.w.player;
   return Object.assign({},B.w,{
@@ -95,23 +108,28 @@ function calStart(e){if(!calOn||e.target.closest('.bar'))return;e.preventDefault
 function calMove(e){if(!calDrag)return;const dy=(e.clientY-calDrag.y)/innerHeight,dx=(e.clientX-calDrag.x)/innerWidth;
   CAL.pitchOff=clamp(calDrag.p-dy*0.9,-0.6,0.6);CAL.hfov=clamp(calDrag.f-dx*60,35,110);}
 function calEnd(){if(calDrag){calDrag=null;saveCal();}}
-addEventListener('pointerdown',calStart,true);addEventListener('pointermove',calMove);addEventListener('pointerup',calEnd);
+addEventListener('pointerdown',calStart,true);addEventListener('pointermove',calMove);addEventListener('pointerup',calEnd);addEventListener('pointercancel',calEnd);
 // AR: the rear camera is the background, the overlay is drawn where things would be in front of you
 async function setAR(on){
-  if(on){try{camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
-      video.srcObject=camStream;video.hidden=false;await video.play().catch(()=>{});arOn=true;}
-    catch(e){arOn=false;$('hudwait').hidden=false;$('hudwait').textContent=!window.isSecureContext?'The camera needs the https:// address or the USB address.':'Camera access was refused or is not available.';setTimeout(status,3000);}}
+  const request=++cameraRequest;cameraError='';$('bAR').disabled=true;
+  if(on){try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+      if(request!==cameraRequest){stream.getTracks().forEach(t=>t.stop());return;}
+      camStream=stream;video.srcObject=stream;video.hidden=false;await video.play();arOn=true;}
+    catch(e){arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.srcObject=null;video.hidden=true;
+      cameraError=!window.isSecureContext?'The camera needs the https:// address or the USB address.':'Camera access was refused or is not available. Tap AR to retry.';}}
   else{arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.hidden=true;video.srcObject=null;}
-  $('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bCal').hidden=!arOn;$('bVR').hidden=!arOn;$('bSim').hidden=!arOn;if(!arOn){calOn=false;setVR(false);setSim(false);}
+  $('bAR').disabled=false;$('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bCal').hidden=!arOn;$('bVR').hidden=!arOn;$('bSim').hidden=!arOn;if(!arOn){setCalibration(false);setVR(false);setSim(false);}
   // AR is a passenger view: the game's autopilot drives, so the pedals and steering are off
-  document.body.classList.toggle('ar',arOn);$('bCenter').textContent=arOn?'Recenter':'Center';ORI.yaw=0;recenterAR();S.gas=S.brake=0;S.touchSteer=null;send({t:'cmd',c:'ar',on:arOn});}
+  document.body.classList.toggle('ar',arOn);$('bCenter').textContent=arOn?'Recenter':'Center';ORI.yaw=0;recenterAR();S.gas=S.brake=0;S.touchSteer=null;send({t:'cmd',c:'ar',on:arOn});status();}
 function drawHud(now){
   cx.setTransform(1,0,0,1,0,0);
   if(arOn)cx.clearRect(0,0,cv.width,cv.height);else{cx.fillStyle='#000';cx.fillRect(0,0,cv.width,cv.height);}
   if(!HUD||!trackOk||!W)return;
   const dt=Math.min(0.1,(now-(drawHud.last||now))/1000);drawHud.last=now;
   // smooth playback: interpolate between buffered updates instead of snapping to each one
-  const view=sampleWorld(now);if(view.hazards&&W.near)view.near=view.hazards[W.hazards.indexOf(W.near)]||view.near;
+  if(arOn&&S.sim)simCapture(now);
+  const view=sampleWorld(arOn&&S.sim&&SIMAR.frameAt?SIMAR.frameAt:now);
+  if(view.hazards&&view.near)view.near=view.hazards[view.hazards.indexOf(view.near)]||view.near;
   HUD.setWorld(view);window.__view=view;   // for debugging from the browser console
   const H=cv.height,Wd=cv.width,u=H/420;
   if(arOn&&S.sim){simFrame(view,now,dt,Wd,H,u);}
@@ -176,7 +194,7 @@ const DO={ok:false,a:0,b:0,g:0,h0:0,center:true};
 addEventListener('deviceorientation',e=>{if(e.alpha==null||e.beta==null)return;DO.a=e.alpha;DO.b=e.beta;DO.g=e.gamma||0;DO.ok=true;
   QH.push([performance.now(),devQuat()]);if(QH.length>40)QH.shift();});
 // recent phone orientations, so the SIM overlay can use the pose at the moment the (delayed) camera frame was taken
-const QH=[],CAM_LAT=90,DISP_LAT=20;
+const QH=[];
 function qAt(t){if(!QH.length)return DO.ok?devQuat():null;let b=QH[QH.length-1];for(let i=QH.length-1;i>=0;i--){b=QH[i];if(QH[i][0]<=t)break;}return b[1];}
 const qmul=(a,b)=>[a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1],a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0],a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3],a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2]];
 function qrot(q,v){const [x,y,z,w]=q,[vx,vy,vz]=v,ix=w*vx+y*vz-z*vy,iy=w*vy+z*vx-x*vz,iz=w*vz+x*vy-y*vx,iw=-x*vx-y*vy-z*vz;
@@ -239,13 +257,14 @@ wb.addEventListener('pointermove',e=>{if(dragX==null)return;S.touchSteer=clamp((
 for(const ev of ['pointerup','pointercancel'])wb.addEventListener(ev,()=>{dragX=null;S.touchSteer=0;});
 
 // ---- buttons
-$('bCenter').onclick=()=>{if(arOn){recenterAR();recFlash();}else recenter();};
+$('bCenter').onclick=()=>{if(S.sim)resetSim();else if(arOn){recenterAR();recFlash();}else recenter();};
 $('bRun').onclick=()=>send({t:'cmd',c:S.running?'stop':'start'});
 $('bDrop').onclick=()=>send({t:'cmd',c:'drop'});
 $('bCam').onclick=()=>send({t:'cmd',c:'cam'});
 $('bAR').onclick=()=>setAR(!arOn);
 $('bSetup').onclick=()=>{const open=$('bLock').hidden;document.querySelectorAll('.more').forEach(b=>b.hidden=!open);$('bSetup').setAttribute('aria-pressed',open?'true':'false');};
-$('bCal').onclick=()=>{calOn=!calOn;$('bCal').setAttribute('aria-pressed',calOn?'true':'false');$('bCal').textContent=calOn?'Done':'Calibrate';};
+function setCalibration(on){calOn=!!on;calDrag=null;$('bCal').setAttribute('aria-pressed',calOn?'true':'false');$('bCal').textContent=calOn?'Done':S.sim?'Recalibrate':'Calibrate';}
+$('bCal').onclick=()=>{if(S.sim){resetSim();$('simControls').hidden=!$('simControls').hidden;}else setCalibration(!calOn);};
 function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttribute('aria-pressed',S.inv?'true':'false');$('bFfb').setAttribute('aria-pressed',S.ffb?'true':'false');$('bFlip').setAttribute('aria-pressed',S.yawInv?'true':'false');$('bVRCam').setAttribute('aria-pressed',S.vrCam?'true':'false');
   try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv2',S.inv?'1':'0');localStorage.setItem('rw.ffb',S.ffb?'1':'0');localStorage.setItem('rw.flip',S.yawInv?'1':'0');localStorage.setItem('rw.vrcam',S.vrCam?'1':'0');}catch(e){}}
 $('bLock').onclick=()=>{S.lock=S.lock===30?45:S.lock===45?70:30;syncOpts();};
@@ -256,50 +275,62 @@ $('bFlip').onclick=()=>{S.yawInv=!S.yawInv;recenterAR();syncOpts();};
 // camera view. The HUD is drawn at game-screen size and warped through it (piecewise affine), so boxes, call signs,
 // the radar and flags sit exactly on the sim picture as the phone moves.
 let PHX=null;
-fetch('/physics.wasm').then(r=>r.arrayBuffer()).then(b=>WebAssembly.instantiate(b,{})).then(({instance})=>{PHX=instance.exports;if(PHX._initialize)PHX._initialize();}).catch(()=>{});
-const SIMAR={grab:document.createElement('canvas'),off:document.createElement('canvas'),t:0,seen:-1e9,dst:null,q:null,mask:0};
-function setSim(on){if(!!S.sim===!!on)return;S.sim=!!on;SIMAR.dst=null;$('bSim').setAttribute('aria-pressed',S.sim?'true':'false');if(S.sim)setVR(false);send({t:'cmd',c:'sim',on:S.sim});}
+const SC=window.SimCalibration;
+const SIMAR={grab:document.createElement('canvas'),frame:document.createElement('canvas'),off:document.createElement('canvas'),tracker:new SC.Tracker(),t:-Infinity,frameAt:0,videoTime:-1,geometry:'',error:'',delay:110};
+try{const delay=localStorage.getItem('rw.simDelay');if(delay!==null&&Number.isFinite(+delay))SIMAR.delay=clamp(+delay,0,300);}catch(e){}
+$('simDelay').value=SIMAR.delay;$('simDelayValue').textContent=SIMAR.delay+' ms';
+$('simDelay').oninput=e=>{SIMAR.delay=clamp(+e.target.value,0,300);$('simDelayValue').textContent=SIMAR.delay+' ms';try{localStorage.setItem('rw.simDelay',SIMAR.delay);}catch(e){}};
+fetch('/physics.wasm').then(r=>{if(!r.ok)throw new Error('Detector download failed');return r.arrayBuffer();}).then(b=>WebAssembly.instantiate(b,{})).then(({instance})=>{
+  const p=instance.exports;
+  for(const name of ['markers_frame','markers_find','markers_found','markers_homography','markers_hom'])if(typeof p[name]!=='function')throw new Error('Detector version mismatch');
+  if(p._initialize)p._initialize();PHX=p;
+}).catch(()=>{SIMAR.error='Could not load the screen detector. Reload this page to retry.';});
+function resetSim(){SIMAR.tracker.reset();SIMAR.t=-Infinity;SIMAR.frameAt=0;SIMAR.videoTime=-1;SIMAR.geometry='';}
+function setSim(on){on=!!on&&arOn;if(!!S.sim===on)return;S.sim=on;resetSim();setCalibration(false);$('simControls').hidden=true;
+  document.body.classList.toggle('sim',on);$('bSim').setAttribute('aria-pressed',on?'true':'false');$('bCenter').textContent=on?'Reacquire':arOn?'Recenter':'Center';
+  if(on)setVR(false);send({t:'cmd',c:'sim',on});}
 $('bSim').onclick=()=>setSim(!S.sim);
 window.__simar=SIMAR;   // for debugging from the browser console
-function simDetect(now){
-  if(!PHX||!video.videoWidth||now-SIMAR.t<50)return;SIMAR.t=now;
-  const vw=video.videoWidth,vh=video.videoHeight,k=Math.min(1,640/Math.max(vw,vh)),w=Math.round(vw*k),h=Math.round(vh*k),g=SIMAR.grab;
+function simCapture(now){
+  if(video.readyState<2||!video.videoWidth||!video.videoHeight||now-SIMAR.t<30)return;
+  const geometry=[video.videoWidth,video.videoHeight,cv.width,cv.height,W&&W.scr,W&&W.mk].join('|');
+  if(geometry!==SIMAR.geometry){resetSim();SIMAR.geometry=geometry;}
+  if(video.currentTime===SIMAR.videoTime)return;
+  SIMAR.videoTime=video.currentTime;SIMAR.t=now;SIMAR.frameAt=now;
+  const f=SIMAR.frame,fs=SC.frameSize(video.videoWidth,video.videoHeight,1280,1280*960);
+  if(f.width!==fs.width||f.height!==fs.height){f.width=fs.width;f.height=fs.height;}
+  // Capture once: detection and the visible background must refer to this exact image.
+  f.getContext('2d').drawImage(video,0,0,f.width,f.height);
+  if(!PHX)return;
+  const {width:w,height:h}=SC.frameSize(f.width,f.height),g=SIMAR.grab;
   if(g.width!==w||g.height!==h){g.width=w;g.height=h;}
-  const gc=g.getContext('2d',{willReadFrequently:true});gc.drawImage(video,0,0,w,h);
-  new Uint8Array(PHX.memory.buffer,PHX.markers_frame(),w*h*4).set(gc.getImageData(0,0,w,h).data);
-  const m=PHX.markers_find(w,h);SIMAR.mask=m;
-  const cnt=(m&1)+(m>>1&1)+(m>>2&1)+(m>>3&1);if(cnt<3||(cnt===3&&!SIMAR.dst))return;
-  // frame pixels -> canvas pixels (the video is shown full-screen, cover-cropped)
-  const F=new Float64Array(PHX.memory.buffer,PHX.markers_found(),8),s=Math.max(cv.width/vw,cv.height/vh),ox=(cv.width-vw*s)/2,oy=(cv.height-vh*s)/2;
-  let p=[0,1,2,3].map(i=>m>>i&1?[ox+F[2*i]/k*s,oy+F[2*i+1]/k*s]:null);
-  if(cnt===3){// one dot hidden (hand, glare): move the last known corner with the average shift of the other three
-    const prev=simPredict();let dx=0,dy=0;p.forEach((q,i)=>{if(q){dx+=q[0]-prev[i][0];dy+=q[1]-prev[i][1];}});p=p.map((q,i)=>q||[prev[i][0]+dx/3,prev[i][1]+dy/3]);}
-  const cr=(a,b,c)=>(b[0]-a[0])*(c[1]-b[1])-(b[1]-a[1])*(c[0]-b[0]),sg=[0,1,2,3].map(i=>Math.sign(cr(p[i],p[(i+1)%4],p[(i+2)%4])));
-  if(!sg.every(v=>v===sg[0]&&v!==0))return;
-  const prev=SIMAR.dst&&now-SIMAR.seen<500?simPredict():null;
-  SIMAR.dst=prev?prev.map((q,i)=>[q[0]+(p[i][0]-q[0])*0.6,q[1]+(p[i][1]-q[1])*0.6]):p;
-  SIMAR.seen=now;SIMAR.q=DO.ok?qAt(performance.now()-CAM_LAT):null;}
-// Between detections the phone keeps moving: rotate the last corners by how the phone has turned since then
-// (pure-rotation model: pixel -> ray -> rotate by the orientation change -> pixel), so the HUD stays on the screen.
-function simPredict(){const d=SIMAR.dst;if(!d||!SIMAR.q||!DO.ok)return d;
-  const vw=video.videoWidth||cv.width,vh=video.videoHeight||cv.height,s=Math.max(cv.width/vw,cv.height/vh),f=(vw/2)/Math.tan(CAL.hfov*Math.PI/360)*s,cxp=cv.width/2,cyp=cv.height/2;
-  const qn=qAt(performance.now()-CAM_LAT),qi=[-qn[0],-qn[1],-qn[2],qn[3]];
-  return d.map(([u,v])=>{const w=qrot(SIMAR.q,[(u-cxp)/f,-(v-cyp)/f,-1]),r=qrot(qi,w);if(r[2]>-0.05)return [u,v];return [cxp+f*r[0]/-r[2],cyp-f*r[1]/-r[2]];});}
-function simPips(Wd,H,u){const cols=['#FF3B3B','#3BF03B','#3B6BFF','#F03BF0'],m=SIMAR.mask||0,locked=performance.now()-SIMAR.seen<400;
+  const gc=g.getContext('2d',{willReadFrequently:true});gc.drawImage(f,0,0,w,h);
+  try{
+    new Uint8Array(PHX.memory.buffer,PHX.markers_frame(),w*h*4).set(gc.getImageData(0,0,w,h).data);
+    const mask=PHX.markers_find(w,h),F=new Float64Array(PHX.memory.buffer,PHX.markers_found(),8);
+    const points=[0,1,2,3].map(i=>[F[2*i]*f.width/w,F[2*i+1]*f.height/h]);
+    SIMAR.tracker.update(mask,SC.frameToCanvas(points,f.width,f.height,cv.width,cv.height),now);
+  }catch(e){SIMAR.tracker.reset();SIMAR.error='Screen detection failed. Reload this page to retry.';}
+}
+function simPips(Wd,H,u){const cols=['#FF3B3B','#3BF03B','#3B6BFF','#F03BF0'],m=SIMAR.tracker.mask,locked=SIMAR.tracker.ready(performance.now());
   cx.save();const x0=Wd/2-62*u,y0=H*0.04;cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(x0-8*u,y0-6*u,140*u,24*u);
   cols.forEach((c,i)=>{cx.beginPath();cx.arc(x0+i*16*u,y0+6*u,5*u,0,Math.PI*2);if(m>>i&1){cx.fillStyle=c;cx.fill();}else{cx.strokeStyle=c;cx.lineWidth=1.5*u;cx.stroke();}});
   cx.fillStyle=locked?'#3BF08A':'#FFC247';cx.font=`700 ${10*u}px "B612 Mono", monospace`;cx.textBaseline='middle';cx.fillText(locked?'LOCKED':'SEARCHING',x0+62*u,y0+6*u);cx.restore();}
 function simFrame(view,now,dt,Wd,H,u){
-  simDetect(now);
-  const mk=W&&W.mk,gw=S.scr?S.scr[0]:0,gh=S.scr?S.scr[1]:0;
-  if(!PHX||!mk||!gw||!SIMAR.dst||now-SIMAR.seen>1500){
+  const f=SIMAR.frame;
+  if(SIMAR.frameAt){const c=SC.cover(f.width,f.height,Wd,H);cx.drawImage(f,c.x,c.y,f.width*c.scale,f.height*c.scale);}
+  const mk=view.mk,gw=view.scr?view.scr[0]:0,gh=view.scr?view.scr[1]:0;
+  if(!PHX||!mk||!gw||!gh||!SIMAR.tracker.ready(now)||now-Wt>500||SIMAR.error){
     simPips(Wd,H,u);cx.save();cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(Wd*0.2,H*0.42,Wd*0.6,H*0.16);cx.fillStyle='#E3EBF0';cx.textAlign='center';cx.textBaseline='middle';
-    cx.font=`700 ${14*u}px "B612 Mono", monospace`;cx.fillText(mk?'Point the camera at the game screen':'Waiting for the calibration dots on the sim',Wd/2,H*0.475);
-    cx.font=`${11*u}px "B612 Mono", monospace`;cx.fillText('All four coloured dots in the corners must be in view',Wd/2,H*0.53);cx.restore();return;}
+    const hint=SIMAR.error||(!PHX?'Loading screen detector…':now-Wt>500?'Waiting for live game data':!SIMAR.frameAt?'Waiting for a camera frame':mk?'Point the camera at the game screen':'Waiting for the calibration dots on the sim');
+    cx.font=`700 ${14*u}px "B612 Mono", monospace`;cx.fillText(hint,Wd/2,H*0.475);
+    cx.font=`${11*u}px "B612 Mono", monospace`;cx.fillText('Keep all four dots visible. Move closer if they look small.',Wd/2,H*0.53);cx.restore();return;}
   simPips(Wd,H,u);
-  const d=simPredict();
+  const d=SIMAR.tracker.points;
   if(!PHX.markers_homography(mk[0],mk[1],mk[2],mk[3],mk[4],mk[5],mk[6],mk[7],d[0][0],d[0][1],d[1][0],d[1][1],d[2][0],d[2][1],d[3][0],d[3][1]))return;
-  const Hm=Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9)),map=(x,y)=>{const w=Hm[6]*x+Hm[7]*y+1;return [(Hm[0]*x+Hm[1]*y+Hm[2])/w,(Hm[3]*x+Hm[4]*y+Hm[5])/w];};
+  const Hm=Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9));
+  if(!SC.validHomography(Hm,gw,gh)){SIMAR.tracker.reset();return;}
+  const map=(x,y)=>SC.project(Hm,x,y);
   // the HUD at game-screen size (60 % resolution), then warped onto the screen in the camera image
   const k0=0.6,off=SIMAR.off,ow=Math.round(gw*k0),oh=Math.round(gh*k0);if(off.width!==ow||off.height!==oh){off.width=ow;off.height=oh;}
   const oc=off.getContext('2d');oc.setTransform(1,0,0,1,0,0);oc.clearRect(0,0,ow,oh);oc.setTransform(k0,0,0,k0,0,0);
@@ -311,12 +342,12 @@ function simFrame(view,now,dt,Wd,H,u){
     const mx=(Q[0][0]+Q[1][0]+Q[2][0])/3,my=(Q[0][1]+Q[1][1]+Q[2][1])/3;
     cx.save();cx.beginPath();Q.forEach((q,i)=>{const x=q[0]+Math.sign(q[0]-mx)*0.8,y=q[1]+Math.sign(q[1]-my)*0.8;i?cx.lineTo(x,y):cx.moveTo(x,y);});cx.closePath();cx.clip();
     cx.setTransform(a,b,c,dd,e,f);cx.drawImage(off,0,0);cx.restore();};
-  const G=5;for(let i=0;i<G;i++)for(let j=0;j<G;j++){const x0=gw*i/G,x1=gw*(i+1)/G,y0=gh*j/G,y1=gh*(j+1)/G;tri([[x0,y0],[x1,y0],[x1,y1]]);tri([[x0,y0],[x1,y1],[x0,y1]]);}
+  const G=12;for(let i=0;i<G;i++)for(let j=0;j<G;j++){const x0=gw*i/G,x1=gw*(i+1)/G,y0=gh*j/G,y1=gh*(j+1)/G;tri([[x0,y0],[x1,y0],[x1,y1]]);tri([[x0,y0],[x1,y1],[x0,y1]]);}
 }
 // ---- VR headset mode (from AR): side-by-side stereo. The buttons hide inside the headset; a tap brings them back
 // for a few seconds, a double tap re-centres the view.
 let vrUiT=0;
-function setVR(on){S.vr=!!on;document.body.classList.toggle('vr',S.vr);$('bVR').setAttribute('aria-pressed',S.vr?'true':'false');
+function setVR(on){if(on)setSim(false);S.vr=!!on;setCalibration(false);$('bCal').hidden=!arOn||S.vr;document.body.classList.toggle('vr',S.vr);$('bVR').setAttribute('aria-pressed',S.vr?'true':'false');
   if(S.vr){recenterAR();showVrUi();try{document.documentElement.requestFullscreen({navigationUI:'hide'}).catch(()=>{});}catch(e){}try{screen.orientation.lock('landscape').catch(()=>{});}catch(e){}}}
 function showVrUi(){document.body.classList.add('vrui');clearTimeout(vrUiT);vrUiT=setTimeout(()=>document.body.classList.remove('vrui'),4000);}
 addEventListener('pointerdown',e=>{if(S.vr&&!e.target.closest('.bar'))showVrUi();},true);

@@ -70,6 +70,12 @@ body.vr .bar,body.vr .status{opacity:0;pointer-events:none;transition:opacity .3
 body.vr.vrui .bar,body.vr.vrui .status{opacity:1;pointer-events:auto;}
 /* no pedals in AR/VR: the button bar can use the full width */
 body.ar .bar{left:4%;right:4%;}
+/* SIM paints the sampled camera frame and its matching overlay together. */
+body.sim #cam{visibility:hidden;}
+#simControls[hidden]{display:none;}
+#simControls{position:fixed;left:10%;right:10%;bottom:60px;z-index:7;display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;padding:12px;background:rgba(0,0,0,.85);border-radius:10px;font-size:11px;}
+#simControls span{flex-basis:100%;text-align:center;color:var(--muted);}
+#simDelay{width:min(40vw,260px);}
 
 /* the glow layer only exists while a car is behind; on the phone it is not blended (blending a full-screen layer over
    live video every frame is expensive on mobile GPUs) */

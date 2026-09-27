@@ -9,6 +9,9 @@ const angd=(a,b)=>{let d=a-b; while(d>Math.PI)d-=TAU; while(d<-Math.PI)d+=TAU; r
 
 /* ================= TRACK (rebuildable) ================= */
 const HW=6, WALL=6.6, GRIP=22;
+// A reloaded game has a new performance clock. Revisions keep the phone from blending across circuit/run resets.
+const SOURCE_ID=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+let trackRev=0,worldRev=0;
 let N,L,DS,PX,PZ,TX,TZ,H,SL,KC,LATRL,VPROF,WLX,WLZ,WRX,WRZ,WGL,WGR,CORNERS=[],STRAIGHTS=[],SPOTS={},TRACK_NAME='Grand Prix circuit';
 /*HUD>*/
 const wrapS=s=>((s%L)+L)%L;
@@ -32,6 +35,7 @@ function trackViews(){const X=PHYS.x,b=X.memory.buffer,F=p=>new Float64Array(b,p
   LATRL=F(X.track_lat());VPROF=F(X.track_vprof());WLX=F(X.track_wlx());WLZ=F(X.track_wlz());WRX=F(X.track_wrx());WRZ=F(X.track_wrz());
   WGL=U(X.track_wgl());WGR=U(X.track_wgr());}
 function buildTrack(raw,name){
+  trackRev++;
   TRACK_NAME=name||'Circuit';const X=PHYS.x;let n;
   if(raw==='default')n=X.track_default();
   else{n=Math.min(raw.length,65536);const R=new Float64Array(X.memory.buffer,X.track_raw(),n*2);for(let i=0;i<n;i++){R[2*i]=raw[i][0];R[2*i+1]=raw[i][1];}}
@@ -1069,13 +1073,13 @@ function drawARView(c,w,t,u,Wd,Hd,cam){
 // pedals) plus the track edges, drawn from the same camera as the game's driver view, with no 3D picture
 // the game's actual render camera (position and quaternion from three.js, 60 degree vertical FOV): used when the
 // phone draws over the sim picture, so the overlay matches the 3D view exactly (slope, braking dip, eye offset, chase)
-function gameCamera(cm,Wd,Hd){const [px,py,pz,qx,qy,qz,qw]=cm,f=(Hd/2)/Math.tan(30*Math.PI/180),cx=Wd/2,cy=Hd/2;
+function gameCamera(cm,Wd,Hd,fov=60){const [px,py,pz]=cm,n=Math.hypot(...cm.slice(3,7))||1,[qx,qy,qz,qw]=cm.slice(3,7).map(v=>v/n),f=(Hd/2)/Math.tan(fov*Math.PI/360),cx=Wd/2,cy=Hd/2;
   const toCam=(x,y,z)=>{const dx=x-px,dy=y-py,dz=z-pz,ix=qw*dx-qy*dz+qz*dy,iy=qw*dy-qz*dx+qx*dz,iz=qw*dz-qx*dy+qy*dx,iw=qx*dx+qy*dy+qz*dz;   // rotate by the inverse quaternion
     return [ix*qw+iw*qx+iy*qz-iz*qy,iy*qw+iw*qy+iz*qx-ix*qz,iz*qw+iw*qz+ix*qy-iy*qx];};
   const projXYZ=(x,y,z)=>{const c=toCam(x,y,z),dep=-c[2];if(dep<0.3)return null;return [cx+f*c[0]/dep,cy-f*c[1]/dep,dep];};
   return {f,proj:(s,lat,yOff)=>{const p=worldPos(s,lat);return projXYZ(p.x,p.y+yOff,p.z);}};}
 function drawScreen(c,w,t,dt,overlay){
-  const u=clamp(Math.min(cw/1100,ch/620),0.55,1.4),A=w.cm?gameCamera(w.cm,cw,ch):arCamera(w,cw,ch,{pitch:0.035,hfov:2*Math.atan(Math.tan(30*Math.PI/180)*cw/ch)*180/Math.PI,camH:1.0,yawOff:0,rawYaw:true});
+  const u=clamp(Math.min(cw/1100,ch/620),0.55,1.4),A=w.cm?gameCamera(w.cm,cw,ch,w.fov||60):arCamera(w,cw,ch,{pitch:0.035,hfov:2*Math.atan(Math.tan(30*Math.PI/180)*cw/ch)*180/Math.PI,camH:1.0,yawOff:0,rawYaw:true});
   c.save();arGround(c,A,w.player,u,false);arFlags(c,w,A,w.player,u);c.restore();
   if(w.opts.hud!==false){
     const R=navRegion(u),pd=22*u;if(!overlay){c.save();c.translate(R.x+R.w/2,R.y+R.h/2);c.scale(R.w/2+pd,R.h/2+pd);
@@ -1261,7 +1265,7 @@ const ui={aids:true,traffic:12,scn:'free',hud:true,visor:true,driver:'drive',ste
 let world=null, running=false, doneShownAt=null, runCount=0, lastAlert=0, shake=0, touchUsed=false;
 const LOG=[];
 function optsFromUI(){return {hud:ui.hud,visor:ui.visor,driver:ui.driver,steer:ui.steer,rain:ui.rain,traffic:ui.traffic,aids:ui.aids};}
-function resetWorld(){world=makeWorld(ui.scn,optsFromUI());buildDynamic(world);paintSky(ui.rain);rainInit=false;camInit=false;NAV.cur=160;syncScene(world,0,0);renderIntro();}
+function resetWorld(){world=makeWorld(ui.scn,optsFromUI());worldRev++;buildDynamic(world);paintSky(ui.rain);rainInit=false;camInit=false;NAV.cur=160;syncScene(world,0,0);renderIntro();}
 function seg(onId,offId,key,onVal,offVal){
   $(onId).addEventListener('click',()=>{ui[key]=onVal;syncControls();applyLive();});
   $(offId).addEventListener('click',()=>{ui[key]=offVal;syncControls();applyLive();});
@@ -1310,7 +1314,7 @@ function startRun(){
   showView('drive');
   if(!PHYS.ok){if(PHYS.err)toast('<b class="info">Physics core did not load</b>Run <code>npm run build:physics</code> and reload.');else PHYS.ready.then(()=>{if(PHYS.ok&&!running)startRun();});return;}
   if(ui.sound)audioStart();
-  world=makeWorld(ui.scn,optsFromUI());buildDynamic(world);paintSky(ui.rain);camInit=false;NAV.cur=160;
+  world=makeWorld(ui.scn,optsFromUI());worldRev++;buildDynamic(world);paintSky(ui.rain);camInit=false;NAV.cur=160;
   running=true;doneShownAt=null;lastAlert=0;shake=0;
   $('introCard').hidden=true;$('resultCard').hidden=true;$('dropBtn').hidden=!world.sc.free;
   $('touch').hidden=!(ui.driver==='drive'&&(touchUsed||matchMedia('(pointer: coarse)').matches));
@@ -1395,14 +1399,14 @@ function readInput(){
 
 /* ================= PHONE WHEEL (only when served by the local server) ================= */
 const REMOTE={phones:0,steer:0,gas:0,brake:0,t:0,ws:null,live:false};
-// the phone draws the visor HUD itself: send the track once, then ~30 compact state updates per second
+// The phone draws the HUD itself. SIM AR gets each rendered frame's camera; other modes use ~30 updates/second.
 const r2=v=>Math.round(v*100)/100, r4=v=>Math.round(v*1e4)/1e4;
 function sendTrack(){if(!REMOTE.live||!REMOTE.phones)return;
-  remoteSend({t:'track',name:TRACK_NAME,N,L,DS,PX:Array.from(PX,r2),PZ:Array.from(PZ,r2),TX:Array.from(TX,r4),TZ:Array.from(TZ,r4),H:Array.from(H,r2),SL:Array.from(SL,r4),LAT:Array.from(LATRL,r2),VP:Array.from(VPROF,r2),
+  remoteSend({t:'track',src:SOURCE_ID,trackRev,name:TRACK_NAME,N,L,DS,PX:Array.from(PX,r2),PZ:Array.from(PZ,r2),TX:Array.from(TX,r4),TZ:Array.from(TZ,r4),H:Array.from(H,r2),SL:Array.from(SL,r4),LAT:Array.from(LATRL,r2),VP:Array.from(VPROF,r2),
     C:CORNERS.map(c=>({s0:r2(c.s0),s1:r2(c.s1),sg:c.sg,angle:r4(c.angle),n:c.n,apex:r2(c.apex)}))});}
 let stateLast=0;
 function phoneFrame(w,t,dt,now){
-  if(!REMOTE.live||!REMOTE.phones||now-stateLast<22)return;const ws=REMOTE.ws;if(!ws||ws.readyState!==1||ws.bufferedAmount>64000)return;
+  if(!REMOTE.live||!REMOTE.phones||(!calibOn()&&now-stateLast<22))return;const ws=REMOTE.ws;if(!ws||ws.readyState!==1||ws.bufferedAmount>64000)return;
   stateLast=now;const P=w.player,RD=w.radar;
   // radar picture for the phone: origin, reach, loss, this scan's returns [x,z,static] and tracks [x,z,flags]
   let rd=null;if(RD&&RD.ox!=null){const d=[],k=[];for(const q of RD.dets.slice(0,90))d.push(r2(q.x),r2(q.z),q.st?1:0);
@@ -1419,7 +1423,7 @@ function phoneFrame(w,t,dt,now){
     drive?clamp((-Math.min(P.kf||0,P.kr||0)-0.1)*3,0,1):0,
     drive?clamp(((P.kr||0)-0.12)*3,0,1):0,
     w.spray||0, drive?(P.aqua||0):0].map(r2);
-  remoteSend({t:'w',tm:r2(t),tw:Math.round(now),cm:[r4(camera.position.x),r4(camera.position.y),r4(camera.position.z),r4(camera.quaternion.x),r4(camera.quaternion.y),r4(camera.quaternion.z),r4(camera.quaternion.w)],mk:calibOn()?calibCentres():null,fg:w.flags?[r2(w.secLen)].concat(Array.from(w.flags)):null,dr:drive?1:0,hd:w.opts.hud?1:0,bh:w.behind?[r2(w.behind.d),w.behind.side,r2(w.behind.cl)]:null,scr:[Math.round(cw),Math.round(ch)],sp:r2(w.spray||0),rd,ffb,
+  remoteSend({t:'w',src:SOURCE_ID,trackRev,worldRev,tm:r2(t),tw:Math.round(now),cm:[r4(camera.position.x),r4(camera.position.y),r4(camera.position.z),r4(camera.quaternion.x),r4(camera.quaternion.y),r4(camera.quaternion.z),r4(camera.quaternion.w)],fov:camera.fov,mk:calibOn()?calibCentres():null,fg:w.flags?[r2(w.secLen)].concat(Array.from(w.flags)):null,dr:drive?1:0,hd:w.opts.hud?1:0,bh:w.behind?[r2(w.behind.d),w.behind.side,r2(w.behind.cl)]:null,scr:[Math.round(cw),Math.round(ch)],sp:r2(w.spray||0),rd,ffb,
     p:[r2(P.s),r2(P.lat),r4(P.psi||0),r2(P.latV||0),r2(P.slideV||0),r2(P.v),r2(P.vx==null?P.v:P.vx),P.lapc||0,r2(P.brk||0),r2(P.thr||0),P.rev?-2:P.gear==null?-1:P.gear,Math.round(P.rpm||0),r4(P.beta||0),r4(P.steer||0)],
     tr:w.traffic.map(c=>[r2(c.s),r2(c.lat),r2(c.latV),r2(c.v),c.vis?1:0,c.closing?1:0,c.lapc||0]),
     hz:w.hazards.map(h=>[h.type,r2(h.s),r2(h.lat),r2(h.yaw||0),h.halfLen,h.halfW,h.vis?1:0,h.gone?1:0,r2(h.avoid),h.vpass,h.label]),
@@ -1475,19 +1479,19 @@ async function remoteInit(){
   const connect=()=>{const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?role=game'+(room?'&k='+room:''));REMOTE.ws=ws;
     ws.onopen=()=>clearTimeout(lost);
     ws.onmessage=e=>{let m;try{m=JSON.parse(e.data);}catch(_){return;}
-      if(m.t==='hello'){sendTrack();}
+      if(m.t==='hello'){if(typeof m.ar==='boolean'||typeof m.sim==='boolean'){const d=phoneDev(m.id);if(typeof m.ar==='boolean')d.ar=m.ar;if(typeof m.sim==='boolean')d.sim=m.sim;phoneRoles();updateCalib();}sendTrack();}
       else if(m.t==='in'){const d=phoneDev(m.id);d.steer=+m.s||0;d.gas=+m.g||0;d.brake=+m.b||0;d.t=performance.now();
         if(!d.ar){REMOTE.steer=d.steer;REMOTE.gas=d.gas;REMOTE.brake=d.brake;REMOTE.t=d.t;REMOTE.n=(REMOTE.n||0)+1;}}
       else if(m.t==='bye'){REMOTE.dev.delete(m.id);phoneRoles();updateCalib();}
       else if(m.t==='phones'){const was=REMOTE.phones;REMOTE.phones=m.n;
-        if(m.ids)for(const id of [...REMOTE.dev.keys()])if(!m.ids.includes(id))REMOTE.dev.delete(id);phoneRoles();
+        if(m.ids)for(const id of [...REMOTE.dev.keys()])if(!m.ids.includes(id))REMOTE.dev.delete(id);phoneRoles();updateCalib();
         if(m.n>was)sendTrack();
         if(m.n>0&&was===0&&REMOTE.gone){clearTimeout(REMOTE.gone);REMOTE.gone=0;}  // quick reconnect: nothing to announce
         else if(m.n>0&&was===0){if(!running){ui.driver='drive';ui.steer='full';syncControls();applyLive();}toast('<b class="info">Phone wheel linked</b>Full steering: tilt to turn the wheels. Traction and stability control are on.');}
         if(m.n===0&&was>0){clearTimeout(REMOTE.gone);REMOTE.gone=setTimeout(()=>{REMOTE.gone=0;if(!REMOTE.phones)toast('<b class="info">Phone wheel disconnected</b>Keyboard controls still work.');},4000);}}
       else if(m.t==='cmd'){if(m.c==='start'&&!running)startRun();else if(m.c==='stop'&&running)stopRun();else if(m.c==='drop')dropHazard();else if(m.c==='ar'){phoneDev(m.id).ar=!!m.on;phoneRoles();}else if(m.c==='sim'){phoneDev(m.id).sim=!!m.on;updateCalib();}else if(m.c==='cam'){ui.cam=ui.cam==='cockpit'?'chase':'cockpit';syncControls();}}};
     // the cloud relay recycles connections every few minutes: only count the phones as gone if it stays down
-    ws.onclose=()=>{clearTimeout(lost);lost=setTimeout(()=>{REMOTE.phones=0;remotePanel();},info.cloud?5000:0);setTimeout(connect,info.cloud?300:1000);};};
+    ws.onclose=()=>{clearTimeout(lost);lost=setTimeout(()=>{REMOTE.phones=0;REMOTE.dev.clear();phoneRoles();updateCalib();},info.cloud?5000:0);setTimeout(connect,info.cloud?300:1000);};};
   connect();
   setInterval(()=>{REMOTE.rate=(REMOTE.n||0);REMOTE.n=0;remotePanel();},1000);
   setInterval(()=>{const w=world;if(!w||!REMOTE.phones)return;const P=w.player,nh=w.near&&w.dNear<RANGE&&w.opts.hud?w.near:null;

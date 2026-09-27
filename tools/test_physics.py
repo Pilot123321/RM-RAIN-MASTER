@@ -216,10 +216,92 @@ np.ctypeslib.as_array(LIB.markers_frame(), shape=(W * H * 4,))[:] = fr.reshape(-
 mask = LIB.markers_find(W, H); F = np.ctypeslib.as_array(LIB.markers_found(), shape=(8,)).reshape(4, 2)
 err = max(np.hypot(F[k][0] - 0.5 - dots[k][0][0], F[k][1] - 0.5 - dots[k][0][1]) for k in range(4))
 check(mask == 15 and err < 1.0, f"finds all four dots and ignores a red stripe and a blue block (max centre error {err:.2f} px)")
+
+def detect_markers(frame):
+    h, w, _ = frame.shape
+    np.ctypeslib.as_array(LIB.markers_frame(), shape=(w * h * 4,))[:] = frame.reshape(-1)
+    mask = LIB.markers_find(w, h)
+    centres = np.ctypeslib.as_array(LIB.markers_found(), shape=(8,)).reshape(4, 2).copy()
+    return mask, centres
+
+# Render the CSS marker proportions (18 px colour, 25 px black, 29 px white) at subpixel resolution.
+# A tilted screen makes the rings elliptical; antialiasing leaves the narrow white ring only one pixel wide.
+ss = 4
+sy, sx = np.mgrid[:H * ss, :W * ss] / ss + 0.5 / ss
+centres = np.array([[40.2, 30.3], [279.7, 30.4], [280.1, 149.8], [39.6, 150.1]])
+colours = [(255, 20, 20), (20, 240, 20), (20, 70, 255), (240, 20, 240)]
+failed_views, max_error = [], 0
+for tilt in (1.0, 0.65, 0.5, 0.4):
+    for angle in (0, 0.5, 0.9):
+        hi = np.full((H * ss, W * ss, 4), 20, np.uint8); hi[..., 3] = 255
+        for (px, py), col in zip(centres, colours):
+            ex = (sx - px) * np.cos(angle) + (sy - py) * np.sin(angle)
+            ey = -(sx - px) * np.sin(angle) + (sy - py) * np.cos(angle)
+            radius = (ex / tilt) ** 2 + ey ** 2
+            for r, rgb in ((5 * 29 / 18, (255,) * 3), (5 * 25 / 18, (0,) * 3), (5, col)):
+                hi[radius <= r * r] = (*rgb, 255)
+        low = hi.reshape(H, ss, W, ss, 4).mean(axis=(1, 3)).astype(np.uint8)
+        mask, measured = detect_markers(low)
+        if mask != 15: failed_views.append((tilt, angle, mask))
+        else: max_error = max(max_error, np.linalg.norm(measured - centres, axis=1).max())
+check(not failed_views and max_error < 0.65,
+      f"finds antialiased CSS dots under tilt and roll (12 views, max error {max_error:.2f} px, failures {failed_views})")
+
+# A full perspective warp changes each marker's scale and shape differently. Generate the image with numpy's
+# inverse mapping and compare detections with the independently projected screen centres.
+projective = np.array([[0.42, -0.08, 50], [0.07, 0.39, 10], [0.0005, 0.0001, 1]])
+screen_centres = np.array([[46, 46], [594, 46], [594, 314], [46, 314]])
+source_grid = np.linalg.solve(projective, np.stack([sx.ravel(), sy.ravel(), np.ones(sx.size)]))
+source_grid = (source_grid[:2] / source_grid[2]).reshape(2, H * ss, W * ss)
+hi = np.full((H * ss, W * ss, 4), 20, np.uint8); hi[..., 3] = 255
+for (px, py), col in zip(screen_centres, colours):
+    radius = (source_grid[0] - px) ** 2 + (source_grid[1] - py) ** 2
+    for r, rgb in ((29, (255,) * 3), (25, (0,) * 3), (18, col)):
+        hi[radius <= r * r] = (*rgb, 255)
+low = hi.reshape(H, ss, W, ss, 4).mean(axis=(1, 3)).astype(np.uint8)
+expected = projective @ np.vstack([screen_centres.T, np.ones(4)])
+expected = (expected[:2] / expected[2]).T
+mask, measured = detect_markers(low)
+perspective_error = np.linalg.norm(measured - expected, axis=1).max()
+check(mask == 15 and perspective_error < 0.65,
+      f"detects all four dots in a projectively warped screen (max error {perspective_error:.2f} px)")
+portrait = np.full((640, 480, 4), 20, np.uint8); portrait[..., 3] = 255
+portrait[20:20 + W, 20:20 + H] = np.rot90(low)
+square = np.full((512, 512, 4), 20, np.uint8); square[..., 3] = 255
+square[20:20 + H, 20:20 + W] = low
+check(detect_markers(portrait)[0] == 15 and detect_markers(square)[0] == 15,
+      "marker buffer supports portrait and square frames within its pixel capacity")
+rejected_rings = []
+for ring in ("none", "black", "white", "reversed"):
+    scenery = np.full((H, W, 4), 20, np.uint8); scenery[..., 3] = 255
+    for (px, py), col in zip(centres, colours):
+        radius = (xx - px) ** 2 + (yy - py) ** 2
+        if ring == "black": scenery[radius <= 100] = (0, 0, 0, 255)
+        if ring == "white": scenery[radius <= 100] = (255, 255, 255, 255)
+        if ring == "reversed":
+            scenery[radius <= 100] = (0, 0, 0, 255)
+            scenery[radius <= 64] = (255, 255, 255, 255)
+        scenery[radius <= 25] = (*col, 255)
+    rejected_rings.append(detect_markers(scenery)[0] == 0)
+check(all(rejected_rings), "coloured discs without the ordered black/white rings are rejected")
+blank = np.full((H, W, 4), 20, np.uint8); blank[..., 3] = 255
+mask, measured = detect_markers(blank)
+check(mask == 0 and np.all(measured == 0), "empty frame clears old marker centres")
+check(all(LIB.markers_find(w, h) == 0 for w, h in ((0, 180), (640, 640), (2 ** 30, 16))),
+      "invalid and oversized marker dimensions fail without overflowing the frame buffer")
+
 src = [0, 0, 1500, 0, 1500, 857, 0, 857]; dst = [190, 95, 1110, 60, 1150, 650, 150, 610]
-LIB.markers_homography(*src, *dst); Hm = np.ctypeslib.as_array(LIB.markers_hom(), shape=(9,)).reshape(3, 3)
-p = Hm @ np.array([750, 428.5, 1]); ref = np.linalg.solve(Hm, np.array([*dst[4:6], 1]))
-check(abs(ref[0] / ref[2] - 1500) < 1e-6 and abs(ref[1] / ref[2] - 857) < 1e-6, f"homography maps the screen corners exactly (centre -> {p[0]/p[2]:.0f}, {p[1]/p[2]:.0f})")
+solved = LIB.markers_homography(*src, *dst); Hm = np.ctypeslib.as_array(LIB.markers_hom(), shape=(9,)).reshape(3, 3).copy()
+mapped = Hm @ np.vstack([np.array(src).reshape(4, 2).T, np.ones(4)])
+check(solved == 1 and np.max(np.abs((mapped[:2] / mapped[2]).T - np.array(dst).reshape(4, 2))) < 1e-6,
+      "homography maps all four screen corners exactly")
+bad_quads = [[1, 1] * 4, [0, 0, 1, 1, 2, 2, 3, 3], [0, 0, 100, 0, 100, 1e-10, 0, 1e-10],
+             [0, 0, 100, 100, 100, 0, 0, 100], [0, 0, 100, 0, 40, 40, 0, 100],
+             [float("nan"), 0, 100, 0, 100, 100, 0, 100], [float("inf"), 0, 100, 0, 100, 100, 0, 100]]
+check(all(LIB.markers_homography(*src, *bad) == 0 and LIB.markers_homography(*bad, *dst) == 0 for bad in bad_quads),
+      "homography rejects non-finite, crossed, concave and nearly collapsed screen quads")
+flipped = np.array(dst).reshape(4, 2)[[1, 0, 3, 2]].reshape(-1)
+check(LIB.markers_homography(*src, *flipped) == 1, "homography accepts a mirrored convex screen")
 
 print("\nall checks passed" if ok else "\nSOME CHECKS FAILED")
 raise SystemExit(0 if ok else 1)
