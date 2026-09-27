@@ -991,8 +991,7 @@ function arBox(c,A,x,z,hx,hz,halfL,halfW,hgt,col,dashed,u,fill){
   return {x:p[0],y:top};
 }
 // drivable surface, track edges, walls and kerbs on the ground plane
-// The road as the driver would read it through AR / VR: a dark asphalt surface, barriers as low panels, a racing line
-// coloured like a driving game's braking guide (green: stay flat; amber: lift; red: brake now for what is coming),
+// The road as the driver would read it through AR / VR: a dark asphalt surface, barriers as low panels,
 // dashes along the middle that stream past with speed, bright edges, red/white kerbs, chevron boards before corners.
 function arGround(c,A,P0,u,fill){
   const proj=A.proj,s0=P0.s,ds=[];for(let d=1;d<=240;d+=d<30?1.5:d<90?3:6)ds.push(d);
@@ -1006,12 +1005,6 @@ function arGround(c,A,P0,u,fill){
   for(const sg of [-1,1])for(let i=1;i<ds.length;i++){const d0=ds[i-1],d1=ds[i],idx=Math.floor(wrapS(s0+d0)/DS)%N;if(WGL&&WGR&&(sg<0?WGL[idx]:WGR[idx]))continue;
     const a=proj(s0+d0,sg*WALL,0),b=proj(s0+d0,sg*WALL,1),e=proj(s0+d1,sg*WALL,1),f=proj(s0+d1,sg*WALL,0);if(!a||!b||!e||!f)continue;
     c.fillStyle=`rgba(150,185,210,${0.16*fa(d0)})`;quad(a,b,e,f);c.fill();c.strokeStyle=`rgba(190,215,235,${0.7*fa(d0)})`;c.lineWidth=lw(3,d0);c.beginPath();c.moveTo(b[0],b[1]);c.lineTo(e[0],e[1]);c.stroke();}
-  // racing line / braking guide
-  if(LATRL&&VPROF){const v=Math.max(P0.v||0,1),BR=24;
-    for(let i=1;i<ds.length;i++){const d0=ds[i-1],d1=ds[i],la=sampleArr(LATRL,s0+d0),lb=sampleArr(LATRL,s0+d1),a=proj(s0+d0,la,0.02),b=proj(s0+d1,lb,0.02);if(!a||!b)continue;
-      const vp=sampleArr(VPROF,s0+d1),need=v*v-vp*vp;let col;
-      if(need>2*BR*d1*0.85)col='255,59,47';else if(vp<v-2)col='255,194,71';else col='57,230,130';
-      c.strokeStyle=`rgba(${col},${0.85*fa(d0)})`;c.lineWidth=lw(12,d0);c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke();}}
   // centre dashes, fixed to the road so they stream past: 3 m on, 6 m off
   c.strokeStyle='rgba(235,248,255,.55)';
   for(let sd=Math.ceil((s0+2)/9)*9;sd<s0+200;sd+=9){const d=sd-s0,a=proj(sd,0,0.01),b=proj(sd+3,0,0.01);if(!a||!b)continue;c.globalAlpha=fa(d);c.lineWidth=lw(5,d);c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke();}

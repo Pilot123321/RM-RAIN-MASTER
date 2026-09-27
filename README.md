@@ -37,7 +37,7 @@ steering wheel.
 - **Flags**: ~200 m marshal sectors go yellow around a hazard and red when it blocks the track or a marshal is
   running across; the autopilot drops to VSC pace through red.
 - **Two phones**: one as the wheel, a second as the AR/VR viewer (side-by-side stereo for a Cardboard-style
-  headset, head yaw tracked). The AR road shows the surface, barriers, a braking-guide racing line and corner
+  headset, head yaw tracked). The AR road shows the surface, barriers, centre dashes, kerbs and corner
   chevrons. Phones pair through the key in the QR code; phones over USB need none.
 - **Circuits from screenshots**: drop a screenshot anywhere on the page or paste it (Cmd+V).
 

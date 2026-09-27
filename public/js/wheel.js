@@ -9,8 +9,8 @@ let lockSaved=45,invSaved=false,ffbSaved=true,flipSaved=false,vrCamSaved=true;tr
 let PAIR=new URLSearchParams(location.search).get('k')||'';try{if(PAIR)sessionStorage.setItem('rw.k',PAIR);else PAIR=sessionStorage.getItem('rw.k')||'';}catch(e){}
 let PID='';try{PID=sessionStorage.getItem('rw.id')||'';}catch(e){}
 if(!PID){PID=Math.random().toString(36).slice(2,10);try{sessionStorage.setItem('rw.id',PID);}catch(e){}}
-let CAL={pitchOff:0,hfov:66,camH:1.05,yawOff:0};try{Object.assign(CAL,JSON.parse(localStorage.getItem('rw.arcal')||'{}'));}catch(e){}
-function saveCal(){try{localStorage.setItem('rw.arcal',JSON.stringify(CAL));}catch(e){}}
+let CAL={pitchOff:0,hfov:66,camH:1.05,yawOff:0};try{Object.assign(CAL,JSON.parse(localStorage.getItem('rw.arcal2')||'{}'));}catch(e){}
+function saveCal(){try{localStorage.setItem('rw.arcal2',JSON.stringify(CAL));}catch(e){}}
 const S={gas:0,brake:0,steer:0,angle:0,neutral:null,gx:0,gy:0,hasMotion:false,lock:lockSaved,inv:invSaved,ffb:ffbSaved,yawInv:flipSaved,vr:false,vrCam:vrCamSaved,touchSteer:null,games:0,running:false,alert:0};
 
 // ---- connection
@@ -99,7 +99,7 @@ async function setAR(on){
   else{arOn=false;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;video.hidden=true;video.srcObject=null;}
   $('bAR').setAttribute('aria-pressed',arOn?'true':'false');$('bCal').hidden=!arOn;$('bVR').hidden=!arOn;if(!arOn){calOn=false;setVR(false);}
   // AR is a passenger view: the game's autopilot drives, so the pedals and steering are off
-  document.body.classList.toggle('ar',arOn);$('bCenter').textContent=arOn?'Recenter':'Center';ORI.yaw=0;S.gas=S.brake=0;S.touchSteer=null;send({t:'cmd',c:'ar',on:arOn});}
+  document.body.classList.toggle('ar',arOn);$('bCenter').textContent=arOn?'Recenter':'Center';ORI.yaw=0;recenterAR();S.gas=S.brake=0;S.touchSteer=null;send({t:'cmd',c:'ar',on:arOn});}
 function drawHud(now){
   cx.setTransform(1,0,0,1,0,0);
   if(arOn)cx.clearRect(0,0,cv.width,cv.height);else{cx.fillStyle='#000';cx.fillRect(0,0,cv.width,cv.height);}
@@ -112,12 +112,12 @@ function drawHud(now){
   if(arOn&&S.vr){
     // VR headset: side-by-side stereo, one half per eye, eyes 64 mm apart, 90 degrees per eye for the lenses.
     // The camera (if on) is shown in both halves; the HUD sits at screen depth in each eye.
-    const half=Wd/2,uu=u*0.8;
+    const half=Wd/2,uu=u*0.8,pose=arPose();
     for(const [i,ex] of [[0,-0.032],[1,0.032]]){
       cx.save();cx.beginPath();cx.rect(i*half,0,half,H);cx.clip();cx.translate(i*half,0);
       cx.fillStyle='#000';cx.fillRect(0,0,half,H);
       if(S.vrCam&&video.readyState>=2&&video.videoWidth){const vw=video.videoWidth,vh=video.videoHeight,k=Math.max(half/vw,H/vh);cx.globalAlpha=0.9;cx.drawImage(video,(half-vw*k)/2,(H-vh*k)/2,vw*k,vh*k);cx.globalAlpha=1;}
-      HUD.drawARView(cx,view,now/1000,uu,half,H,{pitch:CAL.pitchOff,roll:0,hfov:90,camH:CAL.camH,yawOff:CAL.yawOff-ORI.yaw,rawYaw:true,vw:0,vh:0,eyeX:ex});
+      HUD.drawARView(cx,view,now/1000,uu,half,H,{pitch:pose.pitch,roll:pose.roll,hfov:90,camH:CAL.camH,yawOff:pose.yaw,rawYaw:true,vw:0,vh:0,eyeX:ex});
       const bw=half*0.62,th=H*0.12,bx=(half-bw)/2,ty=H*0.1;
       cx.fillStyle='rgba(0,0,0,.4)';cx.fillRect(bx,ty-3*u,bw,th+6*u);HUD.drawTracker(cx,view,bx,ty,bw,th,uu,true);
       HUD.drawFlagChip(cx,view,view.player.s,half/2-50*uu,ty+th+10*u,uu);
@@ -125,7 +125,7 @@ function drawHud(now){
     cx.fillStyle='#000';cx.fillRect(Wd/2-1,0,2,H);
   } else if(arOn){
     const uu=u*1.05,flash=true;
-    const cam={pitch:CAL.pitchOff,roll:0,hfov:CAL.hfov,camH:CAL.camH,yawOff:CAL.yawOff-ORI.yaw,rawYaw:true,vw:video.videoWidth||0,vh:video.videoHeight||0};
+    const pose=arPose(),cam={pitch:pose.pitch,roll:pose.roll,hfov:CAL.hfov,camH:CAL.camH,yawOff:pose.yaw,rawYaw:true,vw:video.videoWidth||0,vh:video.videoHeight||0};
     const A=HUD.drawARView(cx,view,now/1000,uu,Wd,H,cam);
     if(calOn)drawCal(A,Wd,H,uu);
     // readable bands for the header and lap tracker over a bright camera image
@@ -159,6 +159,29 @@ function rearGlow(el,st,b){
   if(b&&!st.was){el.classList.remove('arrive');void el.offsetWidth;el.classList.add('arrive');}
   st.was=!!b;}
 
+// ---- AR/VR camera from the phone's orientation: the standard mechanism (three.js DeviceOrientationControls,
+// Cardboard). The OS fuses gyro + accelerometer (+ compass) into alpha/beta/gamma; with the screen rotation they give
+// the camera's full orientation, so the view looks exactly where the phone's back camera points: tilt down to see
+// the road at your feet, turn to look into a corner, roll and the horizon stays level. Recenter makes the current
+// heading "straight down the track"; pitch and roll stay true to gravity so the horizon matches the real one.
+const DO={ok:false,a:0,b:0,g:0,h0:0,center:true};
+addEventListener('deviceorientation',e=>{if(e.alpha==null||e.beta==null)return;DO.a=e.alpha;DO.b=e.beta;DO.g=e.gamma||0;DO.ok=true;});
+const qmul=(a,b)=>[a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1],a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0],a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3],a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2]];
+function qrot(q,v){const [x,y,z,w]=q,[vx,vy,vz]=v,ix=w*vx+y*vz-z*vy,iy=w*vy+z*vx-x*vz,iz=w*vz+x*vy-y*vx,iw=-x*vx-y*vy-z*vz;
+  return [ix*w-iw*x-iy*z+iz*y,iy*w-iw*y-iz*x+ix*z,iz*w-iw*z-ix*y+iy*x];}
+function devQuat(){const b=DO.b*D2R,a=DO.a*D2R,g=-DO.g*D2R,o=((screen.orientation&&screen.orientation.angle)!=null?screen.orientation.angle:(window.orientation||0))*D2R;
+  const c1=Math.cos(b/2),c2=Math.cos(a/2),c3=Math.cos(g/2),s1=Math.sin(b/2),s2=Math.sin(a/2),s3=Math.sin(g/2);
+  let q=[s1*c2*c3+c1*s2*s3,c1*s2*c3-s1*c2*s3,c1*c2*s3-s1*s2*c3,c1*c2*c3+s1*s2*s3];   // Euler (beta, alpha, -gamma), order YXZ
+  q=qmul(q,[-Math.SQRT1_2,0,0,Math.SQRT1_2]);                                          // the camera looks out of the back
+  return qmul(q,[0,0,Math.sin(-o/2),Math.cos(-o/2)]);}                                  // screen rotated to landscape
+// camera pose for the AR projection: pitch (down +), roll (horizon angle), yaw (+ = looking right of straight ahead)
+function arPose(){
+  if(!DO.ok){const y=-ORI.yaw;return {pitch:CAL.pitchOff,roll:0,yaw:CAL.yawOff+y};}           // fallback: gyro yaw only
+  const q=devQuat(),f=qrot(q,[0,0,-1]),up=qrot(q,[0,1,0]),rt=qrot(q,[1,0,0]),h=Math.atan2(f[0],-f[2]);
+  if(DO.center){DO.h0=h;DO.center=false;}
+  let yaw=Math.atan2(Math.sin(h-DO.h0),Math.cos(h-DO.h0));if(S.yawInv)yaw=-yaw;
+  return {pitch:-Math.asin(clamp(f[1],-1,1))+CAL.pitchOff,roll:Math.atan2(rt[1],up[1]),yaw:CAL.yawOff+yaw};}
+function recenterAR(){ORI.yaw=0;DO.center=true;}
 function fuse(e,ax,ay,az,gm){
   const now=e.timeStamp||performance.now(),dt=ORI.t?clamp((now-ORI.t)/1000,0,0.1):0;ORI.t=now;
   const m=[ax/gm,ay/gm,az/gm];if(!ORI.u){ORI.u=m;return;}const u=ORI.u,r=e.rotationRate;
@@ -204,7 +227,7 @@ wb.addEventListener('pointermove',e=>{if(dragX==null)return;S.touchSteer=clamp((
 for(const ev of ['pointerup','pointercancel'])wb.addEventListener(ev,()=>{dragX=null;S.touchSteer=0;});
 
 // ---- buttons
-$('bCenter').onclick=()=>{if(arOn){ORI.yaw=0;recFlash();}else recenter();};
+$('bCenter').onclick=()=>{if(arOn){recenterAR();recFlash();}else recenter();};
 $('bRun').onclick=()=>send({t:'cmd',c:S.running?'stop':'start'});
 $('bDrop').onclick=()=>send({t:'cmd',c:'drop'});
 $('bCam').onclick=()=>send({t:'cmd',c:'cam'});
@@ -215,12 +238,12 @@ function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttr
   try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv2',S.inv?'1':'0');localStorage.setItem('rw.ffb',S.ffb?'1':'0');localStorage.setItem('rw.flip',S.yawInv?'1':'0');localStorage.setItem('rw.vrcam',S.vrCam?'1':'0');}catch(e){}}
 $('bLock').onclick=()=>{S.lock=S.lock===30?45:S.lock===45?70:30;syncOpts();};
 $('bFfb').onclick=()=>{S.ffb=!S.ffb;if(!S.ffb&&navigator.vibrate)navigator.vibrate(0);syncOpts();};
-$('bFlip').onclick=()=>{S.yawInv=!S.yawInv;ORI.yaw=0;syncOpts();};
+$('bFlip').onclick=()=>{S.yawInv=!S.yawInv;recenterAR();syncOpts();};
 // ---- VR headset mode (from AR): side-by-side stereo. The buttons hide inside the headset; a tap brings them back
 // for a few seconds, a double tap re-centres the view.
 let vrUiT=0;
 function setVR(on){S.vr=!!on;document.body.classList.toggle('vr',S.vr);$('bVR').setAttribute('aria-pressed',S.vr?'true':'false');
-  if(S.vr){ORI.yaw=0;showVrUi();try{document.documentElement.requestFullscreen({navigationUI:'hide'}).catch(()=>{});}catch(e){}try{screen.orientation.lock('landscape').catch(()=>{});}catch(e){}}}
+  if(S.vr){recenterAR();showVrUi();try{document.documentElement.requestFullscreen({navigationUI:'hide'}).catch(()=>{});}catch(e){}try{screen.orientation.lock('landscape').catch(()=>{});}catch(e){}}}
 function showVrUi(){document.body.classList.add('vrui');clearTimeout(vrUiT);vrUiT=setTimeout(()=>document.body.classList.remove('vrui'),4000);}
 addEventListener('pointerdown',e=>{if(S.vr&&!e.target.closest('.bar'))showVrUi();},true);
 $('bVR').onclick=()=>setVR(!S.vr);
@@ -228,7 +251,7 @@ $('bVRCam').onclick=()=>{S.vrCam=!S.vrCam;syncOpts();};
 // AR: double-tap anywhere on the view to make the way you are facing "straight ahead" (as in VR headsets)
 let lastTap=0;
 addEventListener('pointerdown',e=>{if(!arOn||calOn||e.target.closest('.bar,.sheet'))return;const now=performance.now();
-  if(now-lastTap<350){ORI.yaw=0;lastTap=0;if(navigator.vibrate)navigator.vibrate(15);recFlash();}else lastTap=now;});
+  if(now-lastTap<350){recenterAR();lastTap=0;if(navigator.vibrate)navigator.vibrate(15);recFlash();}else lastTap=now;});
 function recFlash(){const el=$('recenter');el.classList.remove('show');void el.offsetWidth;el.classList.add('show');}
 // ---- force feedback from the tyres. A phone motor is only on or off, so each channel is a rhythm and its
 // strength a duty cycle inside each 60 ms window, highest priority first:
@@ -253,6 +276,7 @@ let wake=null;
 async function keepAwake(){try{wake=await navigator.wakeLock.request('screen');}catch(e){}}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){keepAwake();if(!ws||ws.readyState>1)connect();}});
 $('go').onclick=async()=>{
+  try{if(typeof DeviceOrientationEvent!=='undefined'&&DeviceOrientationEvent.requestPermission)await DeviceOrientationEvent.requestPermission();}catch(e){}
   try{if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission){const r=await DeviceMotionEvent.requestPermission();if(r!=='granted')throw new Error('denied');}}catch(e){$('sheetMsg').textContent='Motion access was refused. Drag on the wheel to steer instead.';}
   if(!window.isSecureContext){$('sheetMsg').className='warn';$('sheetMsg').textContent='This page is not a secure connection, so the gyro is off. Use the https:// address or the USB address from the Mac.';}
   window.addEventListener('devicemotion',onMotion);

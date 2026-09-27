@@ -26,7 +26,7 @@ html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(
 .status{position:fixed;right:max(12px,env(safe-area-inset-right));top:max(8px,env(safe-area-inset-top));bottom:auto;max-width:24%;text-align:right;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);pointer-events:none;}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--brake);margin-right:6px;vertical-align:0;}
 .dot.ok{background:var(--gas);}
-.glow{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .35s ease;box-shadow:inset 0 0 0 4px var(--gc),inset 0 0 60px 10px var(--gc);--gc:var(--amb);}
+.glow{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .35s ease;box-shadow:inset 0 0 0 4px var(--gc);--gc:var(--amb);}
 .sheet{position:fixed;inset:0;display:grid;place-items:center;background:rgba(5,8,11,.94);z-index:10;padding:24px;text-align:center;}
 .sheet[hidden]{display:none;}
 .sheet div{display:grid;gap:14px;max-width:520px;justify-items:center;}
@@ -44,12 +44,13 @@ body.ar .pedal,body.ar #bLock,body.ar #bInv{display:none!important;}
 @property --l{syntax:"<number>";inherits:false;initial-value:0;}
 @property --r{syntax:"<number>";inherits:false;initial-value:0;}
 @property --b{syntax:"<number>";inherits:false;initial-value:0;}
-#rearfx{position:fixed;z-index:5;inset:0;pointer-events:none;--rc:196 248 255;mix-blend-mode:screen;
-  background:linear-gradient(to right,rgb(var(--rc) / calc(var(--l) * .9)),rgb(var(--rc) / calc(var(--l) * .35)) 7%,rgb(var(--rc) / 0) 26%),
-    linear-gradient(to left,rgb(var(--rc) / calc(var(--r) * .9)),rgb(var(--rc) / calc(var(--r) * .35)) 7%,rgb(var(--rc) / 0) 26%),
-    linear-gradient(to top,rgb(var(--rc) / calc(var(--b) * .85)),rgb(var(--rc) / calc(var(--b) * .3)) 8%,rgb(var(--rc) / 0) 30%);
+#rearfx{position:fixed;z-index:5;inset:0;pointer-events:none;--rc:196 248 255;
+  /* flat solid bands (hard stops, no fade): thicker as the car closes (up to 14 px) */
+  background:linear-gradient(to right,rgb(var(--rc) / .85) 0 calc(var(--l) * 14px),transparent 0),
+    linear-gradient(to left,rgb(var(--rc) / .85) 0 calc(var(--r) * 14px),transparent 0),
+    linear-gradient(to top,rgb(var(--rc) / .85) 0 calc(var(--b) * 14px),transparent 0);
   transition:--l .25s ease,--r .25s ease,--b .25s ease;}
-#rearfx::after{content:"";position:absolute;inset:0;opacity:0;box-shadow:inset 0 0 140px 40px rgb(var(--rc) / .95),inset 0 0 0 4px rgb(var(--rc));}
+#rearfx::after{content:"";position:absolute;inset:0;opacity:0;box-shadow:inset 0 0 0 5px rgb(var(--rc));}
 #rearfx.arrive::after{animation:rear-arrive .9s ease-out;}
 #rearfx.closing{animation:rear-pulse .6s ease-in-out infinite;}
 @keyframes rear-arrive{0%{opacity:0}12%{opacity:1}30%{opacity:.15}45%{opacity:.9}100%{opacity:0}}

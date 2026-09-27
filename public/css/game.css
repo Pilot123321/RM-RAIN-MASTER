@@ -69,10 +69,9 @@ body[data-view="setup"] .view[data-view="setup"],body[data-view="phone"] .view[d
 #combiner{position:absolute;pointer-events:none;border-radius:18px;background:radial-gradient(closest-side,rgba(3,9,13,.5),rgba(3,9,13,.34) 70%,rgba(3,9,13,0));}
 #combiner[hidden]{display:none;}
 .helmet{position:absolute;inset:0;pointer-events:none;background:radial-gradient(135% 125% at 50% 56%,transparent 60%,rgba(0,0,0,.62) 100%);}
-#visor{--vc:#FFC247;position:absolute;left:0;right:0;top:0;height:16%;pointer-events:none;opacity:0;
-  background:radial-gradient(90% 100% at 50% 0%,color-mix(in srgb,var(--vc) 55%,transparent) 0%,transparent 72%);}
-#visor::before{content:"";position:absolute;left:6%;right:6%;top:0;height:5px;border-radius:0 0 6px 6px;background:var(--vc);box-shadow:0 0 22px 6px var(--vc);}
-.flash{position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 50%,rgba(255,75,58,0),rgba(255,75,58,.45));opacity:0;}
+#visor{--vc:#FFC247;position:absolute;left:0;right:0;top:0;height:16%;pointer-events:none;opacity:0;}
+#visor::before{content:"";position:absolute;left:6%;right:6%;top:0;height:4px;background:var(--vc);}
+.flash{position:absolute;inset:0;pointer-events:none;background:rgb(255 75 58 / .28);box-shadow:inset 0 0 0 5px rgb(255 75 58);opacity:0;}
 .status{position:absolute;left:14px;bottom:12px;display:grid;gap:3px;font:11px/1.3 var(--f-mono);color:rgba(207,246,255,.8);letter-spacing:.06em;text-transform:uppercase;pointer-events:none;text-shadow:0 1px 2px #000;max-width:46%;}
 .status b{color:var(--hud);font-weight:700;}
 /* overlays on the onboard view: black glass, a red top stripe, italic caps like a TV graphic */
@@ -280,12 +279,13 @@ input[type=range]::-moz-range-thumb{width:12px;height:22px;border:0;border-radiu
 @property --l{syntax:"<number>";inherits:false;initial-value:0;}
 @property --r{syntax:"<number>";inherits:false;initial-value:0;}
 @property --b{syntax:"<number>";inherits:false;initial-value:0;}
-#rearfx{position:absolute;inset:0;pointer-events:none;--rc:196 248 255;mix-blend-mode:screen;
-  background:linear-gradient(to right,rgb(var(--rc) / calc(var(--l) * .9)),rgb(var(--rc) / calc(var(--l) * .35)) 7%,rgb(var(--rc) / 0) 26%),
-    linear-gradient(to left,rgb(var(--rc) / calc(var(--r) * .9)),rgb(var(--rc) / calc(var(--r) * .35)) 7%,rgb(var(--rc) / 0) 26%),
-    linear-gradient(to top,rgb(var(--rc) / calc(var(--b) * .85)),rgb(var(--rc) / calc(var(--b) * .3)) 8%,rgb(var(--rc) / 0) 30%);
+#rearfx{position:absolute;inset:0;pointer-events:none;--rc:196 248 255;
+  /* flat solid bands (hard stops, no fade): thicker as the car closes (up to 14 px) */
+  background:linear-gradient(to right,rgb(var(--rc) / .85) 0 calc(var(--l) * 14px),transparent 0),
+    linear-gradient(to left,rgb(var(--rc) / .85) 0 calc(var(--r) * 14px),transparent 0),
+    linear-gradient(to top,rgb(var(--rc) / .85) 0 calc(var(--b) * 14px),transparent 0);
   transition:--l .25s ease,--r .25s ease,--b .25s ease;}
-#rearfx::after{content:"";position:absolute;inset:0;opacity:0;box-shadow:inset 0 0 140px 40px rgb(var(--rc) / .95),inset 0 0 0 4px rgb(var(--rc));}
+#rearfx::after{content:"";position:absolute;inset:0;opacity:0;box-shadow:inset 0 0 0 5px rgb(var(--rc));}
 #rearfx.arrive::after{animation:rear-arrive .9s ease-out;}
 #rearfx.closing{animation:rear-pulse .6s ease-in-out infinite;}
 @keyframes rear-arrive{0%{opacity:0}12%{opacity:1}30%{opacity:.15}45%{opacity:.9}100%{opacity:0}}
