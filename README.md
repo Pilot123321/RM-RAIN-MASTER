@@ -6,7 +6,7 @@ cars hidden by spray, a wall or a crest. Paired with a visor light that says "da
 without the driver looking.
 
 This repo is a playable demo: a floodlit, wet Grand Prix circuit (grandstands, pit building, gravel and
-grass run-off, light towers) where you drive with the HUD on or off, plus an Android phone that works as the
+grass run-off, light towers) where you drive with the HUD on or off, plus a phone (iPhone or Android) that works as the
 steering wheel.
 
 ### What's in it
@@ -29,7 +29,7 @@ steering wheel.
 - **Engine sound**: loops cut from real V8 recordings (a Maserati V8 and the Bentley Speed 8 Le Mans car), pitched
   to the physics rpm and crossfaded by rpm and throttle, with upshift cuts, overrun crackle and the nearest car
   panned with Doppler.
-- **Phone wheel**: tilt an Android phone to steer, gas and brake on the sides. The phone shows the game
+- **Phone wheel**: tilt a phone (iPhone or Android) to steer, gas and brake on the sides. The phone shows the game
   screen's HUD layout with the track edges (no 3D picture). In AR mode (a passenger view: the autopilot drives)
   it uses the camera and the phone's full orientation, smoothed so the overlay holds still. Force feedback comes from the tyres through the vibration motor: impacts, lock-ups, kerbs,
   wheelspin and slides, front scrub, and a steering-weight hum that fades as the front goes light.
@@ -43,10 +43,13 @@ steering wheel.
   running across; the autopilot drops to VSC pace through red.
 - **Two phones**: one as the wheel, a second as the AR viewer (head yaw tracked). The AR road shows the surface, barriers, centre dashes, kerbs and corner
   chevrons. Phones pair through the key in the QR code; phones over USB need none.
-- **SIM AR**: point the phone at the computer screen and tap SIM (in AR). The sim shows ten coloured calibration
-  dots and a frame-number strip (or press K / the Dots button). The phone finds the dots (C++,
-  `physics/markers.cpp`), fits the screen mapping plus its own lens bend, reads the frame number so the HUD is
-  drawn for exactly the frame on screen, and warps the HUD over the sim picture.
+- **SIM AR**: tap AR on the phone and point it at the computer screen. While a phone is in AR the sim shows ten
+  coloured calibration dots and a frame-number strip (also the Dots button / K). Every camera frame, the phone finds
+  the dots (C++, `physics/markers.cpp`, candidates checked against each other so kerbs and sponsor boards cannot pass
+  as dots), fits the screen mapping plus its own lens bend and field of view, reads the frame number (Gray code with
+  parity, painted into the WebGL frame) so the HUD is drawn for exactly the frame on screen, and warps the HUD over
+  the sim picture; SIM switches on by itself. When the dots are missed for a moment, AR carries on through the sim's
+  own camera, aligned from the dots. One **Calibrate** button re-centres and relearns everything.
 - **Circuits from screenshots**: drop a screenshot anywhere on the page or paste it (Cmd+V).
 
 ### On the web

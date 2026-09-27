@@ -1367,7 +1367,7 @@ function pop(t,amp){const s=AC.createBufferSource();s.buffer=eng.nb;const f=AC.c
 let audioSeen=0;
 function soundGate(){if(!AC)return;const want=ui.sound&&document.visibilityState==='visible';
   if(want&&AC.state==='suspended')AC.resume();else if(!want&&AC.state==='running')AC.suspend();}
-document.addEventListener('visibilitychange',soundGate);
+document.addEventListener('visibilitychange',()=>{soundGate();if(!document.hidden)sendTrack();});
 setInterval(()=>{if(eng&&AC&&performance.now()-audioSeen>400)eng.master.gain.setTargetAtTime(0,AC.currentTime,0.02);},200);
 function audioUpdate(w,running){
   if(!eng||!AC)return;const now=AC.currentTime,on=ui.sound&&running&&!w.done,P=w.player;
@@ -1542,11 +1542,13 @@ function readInput(){
 const REMOTE={phones:0,steer:0,gas:0,brake:0,t:0,ws:null,live:false};
 // The phone draws the HUD itself. SIM AR gets each rendered frame's camera; other modes use ~30 updates/second.
 const r2=v=>Math.round(v*100)/100, r4=v=>Math.round(v*1e4)/1e4;
-function sendTrack(){if(!REMOTE.live||!REMOTE.phones)return;
+// a hidden sim tab stays quiet towards phones: only the tab on screen drives the phone's HUD
+function sendTrack(){if(!REMOTE.live||!REMOTE.phones||document.hidden)return;
   remoteSend({t:'track',src:SOURCE_ID,trackRev,name:TRACK_NAME,N,L,DS,PX:Array.from(PX,r2),PZ:Array.from(PZ,r2),TX:Array.from(TX,r4),TZ:Array.from(TZ,r4),H:Array.from(H,r2),SL:Array.from(SL,r4),LAT:Array.from(LATRL,r2),VP:Array.from(VPROF,r2),
     C:CORNERS.map(c=>({s0:r2(c.s0),s1:r2(c.s1),sg:c.sg,angle:r4(c.angle),n:c.n,apex:r2(c.apex)}))});}
 let stateLast=0;
 function phoneFrame(w,t,dt,now){
+  if(document.hidden)return;
   if(!REMOTE.live||!REMOTE.phones||(!calibOn()&&now-stateLast<22))return;const ws=REMOTE.ws;if(!ws||ws.readyState!==1||ws.bufferedAmount>64000)return;
   stateLast=now;const P=w.player,RD=w.radar;
   // radar picture for the phone: origin, reach, loss, this scan's returns [x,z,static] and tracks [x,z,flags]
@@ -1665,7 +1667,7 @@ async function remoteInit(){
     ws.onclose=()=>{clearTimeout(lost);lost=setTimeout(()=>{REMOTE.phones=0;REMOTE.dev.clear();phoneRoles();updateCalib();},info.cloud?5000:0);setTimeout(connect,info.cloud?300:1000);};};
   connect();
   setInterval(()=>{REMOTE.rate=(REMOTE.n||0);REMOTE.n=0;remotePanel();},1000);
-  setInterval(()=>{const w=world;if(!w||!REMOTE.phones)return;const P=w.player,nh=w.near&&w.dNear<RANGE&&w.opts.hud?w.near:null;
+  setInterval(()=>{const w=world;if(!w||!REMOTE.phones||document.hidden)return;const P=w.player,nh=w.near&&w.dNear<RANGE&&w.opts.hud?w.near:null;
     remoteSend({t:'st',ap:REMOTE.ar?1:0,wh:REMOTE.wheels||0,a:w.alert,k:Math.round(P.v*3.6),r:running&&!w.done,w:!!P.onWall,h:nh?nh.label:'',d:nh?Math.round(w.dNear):0});
     const deg=REMOTE.steer*45;$('mSteerV').textContent=(deg>0?'R ':deg<0?'L ':'')+Math.abs(Math.round(REMOTE.steer*100))+'%';
     const f=$('mSteer').querySelector('.fill'),v=REMOTE.steer;f.style.left=(v<0?50+v*50:50)+'%';f.style.width=Math.abs(v)*50+'%';
@@ -1998,5 +2000,5 @@ PHYS.ready.then(()=>{
   requestAnimationFrame(frame);
   remoteInit();
 });
-window.__dbg={get fc(){return FC;},get eng(){return eng;},get AC(){return AC;},get camera(){return camera;},worldPos,gameCamera,get cw(){return cw;},get ch(){return ch;},scene,renderer,sprayPts,PHYS,rainL,get tg(){return trackGroup;},hc,get world(){return world;},ui,REMOTE,kap:s=>sampleArr(KC,s),get streaks(){return STREAKS;},MATS,get pg(){return playerGLB;},get glb(){return CAR_GLB;}};
+window.__dbg={get src(){return SOURCE_ID;},get fc(){return FC;},get eng(){return eng;},get AC(){return AC;},get camera(){return camera;},worldPos,gameCamera,get cw(){return cw;},get ch(){return ch;},scene,renderer,sprayPts,PHYS,rainL,get tg(){return trackGroup;},hc,get world(){return world;},ui,REMOTE,kap:s=>sampleArr(KC,s),get streaks(){return STREAKS;},MATS,get pg(){return playerGLB;},get glb(){return CAR_GLB;}};
 })();

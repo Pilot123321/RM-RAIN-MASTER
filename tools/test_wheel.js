@@ -172,6 +172,12 @@ async function main() {
   // A track echo must retain snapshots; a fresh game source must replace both geometry and timing.
   socket.receive(track()); reload.frame(1100);
   assert(reload.context.__view.player.s >= 100);
+  // a second sim tab in the same room must not take over while the first is live
+  socket.receive(track('game-x', 9)); socket.receive(state({src: 'game-x', trackRev: 9, p: [555, 0, 0, 0, 0, 0]}));
+  reload.frame(1120);
+  assert(reload.context.__view.player.s !== 555, 'Another game tab in the room does not hijack the phone');
+  // a reload of the game page: the relay reports the game gone and back, then the new source is followed
+  socket.receive({t: 'games', n: 0}); socket.receive({t: 'games', n: 1});
   socket.receive(track('game-b', 2));
   socket.receive(state({src: 'game-b', trackRev: 2, worldRev: 1, tw: 50, p: [400, 0, 0, 0, 0, 0]}));
   socket.receive(state({src: 'game-a', p: [900, 0, 0, 0, 0, 0]}));

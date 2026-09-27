@@ -26,7 +26,8 @@ function connect(){
   ws.onopen=()=>{resetWorld();S.unpaired=false;status();hello();};
   ws.onmessage=e=>{if(typeof e.data!=='string')return;let m;try{m=JSON.parse(e.data);}catch(_){return;}
     if(m.t==='track'){onTrack(m);return;} if(m.t==='w'){onState(m);return;}
-    if(m.t==='games'){if(S.games!==m.n)resetWorld();S.games=m.n;status();hello();
+    // reset only when the game is gone (a reload): a second sim tab joining the room must not take over
+    if(m.t==='games'){if(!m.n)resetWorld();S.games=m.n;status();hello();
       clearTimeout(lonely);if(CLOUD&&!m.n)lonely=setTimeout(()=>{if(ws&&ws.readyState===1&&!S.games)ws.close(4000,'find the game');},2000+Math.random()*1500);}
     else if(m.t==='st'){S.running=m.r;S.ap=!!m.ap;S.wh=m.wh||0;$('bRun').textContent=m.r?'Stop':'Start';
       if(m.a===2&&S.alert!==2&&navigator.vibrate){navigator.vibrate([90,60,90]);FFB.hold=performance.now()+260;}
@@ -44,11 +45,11 @@ function hello(){send({t:'hello',w:innerWidth,h:innerHeight,dpr:devicePixelRatio
   send({t:'cmd',c:'ar',on:arOn});send({t:'cmd',c:'sim',on:!!S.sim});send({t:'cmd',c:'dots',on:!!S.dots});}
 addEventListener('resize',()=>setTimeout(hello,200));
 function status(){const open=ws&&ws.readyState===1,ok=open&&S.games>0;$('dot').classList.toggle('ok',ok);
-  $('conn').textContent=S.unpaired?'Not paired: scan the QR code on the Mac again':!open?'Cannot reach '+location.host:!S.games?'Server OK, open the game on the Mac':`Linked · ${arOn?(S.ap?'AR view · autopilot driving':'AR view · wheel phone drives'):'Wheel'} · HUD ${fps} fps · v8`;
+  $('conn').textContent=S.unpaired?'Not paired: scan the QR code on the computer again':!open?'Cannot reach '+location.host:!S.games?'Server OK, open the game on the computer':`Linked · ${arOn?(S.ap?'AR view · autopilot driving':'AR view · wheel phone drives'):'Wheel'} · HUD ${fps} fps · v8`;
   $('hudwait').hidden=!!(trackOk&&W)&&!cameraError;
   if(cameraError){$('hudwait').textContent=cameraError;return;}
-  if(open&&S.games&&!trackOk)$('hudwait').textContent='Linked, waiting for the track. Reload the game page on the Mac.';
-  if(!HUD)$('hudwait').textContent='Could not load the HUD code from the Mac. Reload this page.';}
+  if(open&&S.games&&!trackOk)$('hudwait').textContent='Linked, waiting for the track. Reload the game page on the computer.';
+  if(!HUD)$('hudwait').textContent='Could not load the HUD code. Reload this page.';}
 setInterval(status,500);
 // ---- native HUD: same drawing code as the game, fed by track + state messages
 const HUD=window.makeHUD?window.makeHUD():null;if(HUD)HUD.setCalm(true);
@@ -60,12 +61,19 @@ function fitCanvas(){const d=Math.min(devicePixelRatio||1,1.5);   // 1.5x is sha
 addEventListener('resize',fitCanvas);fitCanvas();
 let trackSource=null,trackRevision=null,worldRevision=null;
 function resetWorld(){SNAP.length=0;OFFS.length=0;clockOff=null;W=null;trackOk=false;trackSource=null;trackRevision=null;worldRevision=null;resetSim();}
+// One game at a time: if two sim tabs share the room (e.g. an old tab left open), the phone keeps following the one
+// it is on and only switches when that one has been silent for 1.5 s. Mixing them put another race's cars and
+// camera on the HUD.
+let srcSeen=0,srcAsk=0;
 function onTrack(t){if(!HUD)return;
+  if(trackOk&&t.src!==trackSource&&performance.now()-srcSeen<1500)return;
   if(!trackOk||t.src!==trackSource||t.trackRev!==trackRevision){SNAP.length=0;OFFS.length=0;clockOff=null;W=null;worldRevision=null;resetSim();}
   HUD.setTrack(t);trackSource=t.src;trackRevision=t.trackRev;trackOk=true;}
 const SNAP=[],OFFS=[];let clockOff=null;
 function onState(m){
-  if(!trackOk||m.src!==trackSource||m.trackRev!==trackRevision)return;
+  if(trackOk&&m.src!==trackSource){const now=performance.now();if(now-srcSeen>1500&&now-srcAsk>1000){srcAsk=now;hello();}return;}   // ask the other game for its track
+  if(!trackOk||m.trackRev!==trackRevision)return;
+  srcSeen=performance.now();
   if(worldRevision!==m.worldRev){SNAP.length=0;worldRevision=m.worldRev;}
   if(SNAP.length&&m.tw!=null&&m.tw/1000<SNAP[SNAP.length-1].tm){SNAP.length=0;OFFS.length=0;clockOff=null;}
   msgs++;const hz=m.hz.map(h=>({type:h[0],s:h[1],lat:h[2],yaw:h[3],halfLen:h[4],halfW:h[5],vis:!!h[6],gone:!!h[7],avoid:h[8],vpass:h[9],label:h[10]}));
@@ -346,6 +354,7 @@ function setSim(on,keepLock){on=!!on&&arOn;if(!!S.sim===on)return;S.sim=on;if(ke
 // until pressed again)
 $('bSim').onclick=()=>{if(S.sim){S.simBlock=true;S.simAuto=false;setSim(false);}else{S.simBlock=false;S.simAuto=false;setDots(true);setSim(true);}};
 window.__simar=SIMAR;   // for debugging from the browser console
+window.__wheel={get src(){return trackSource;},get trackOk(){return trackOk;},get seenAgo(){return Math.round(performance.now()-srcSeen);},get snaps(){return SNAP.length;},get games(){return S.games;}};
 function simCapture(now){
   if(video.readyState<2||!video.videoWidth||!video.videoHeight||now-SIMAR.t<30)return;
   const geometry=[video.videoWidth,video.videoHeight,cv.width,cv.height,W&&W.scr,W&&W.mk].join('|');
@@ -526,7 +535,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 $('go').onclick=async()=>{
   try{if(typeof DeviceOrientationEvent!=='undefined'&&DeviceOrientationEvent.requestPermission)await DeviceOrientationEvent.requestPermission();}catch(e){}
   try{if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission){const r=await DeviceMotionEvent.requestPermission();if(r!=='granted')throw new Error('denied');}}catch(e){$('sheetMsg').textContent='Motion access was refused. Drag on the wheel to steer instead.';}
-  if(!window.isSecureContext){$('sheetMsg').className='warn';$('sheetMsg').textContent='This page is not a secure connection, so the gyro is off. Use the https:// address or the USB address from the Mac.';}
+  if(!window.isSecureContext){$('sheetMsg').className='warn';$('sheetMsg').textContent='This page is not a secure connection, so the gyro is off. Use the https:// address or the USB address from the computer.';}
   window.addEventListener('devicemotion',onMotion);
   try{await document.documentElement.requestFullscreen({navigationUI:'hide'});}catch(e){}
   try{await screen.orientation.lock('landscape');}catch(e){}
