@@ -477,11 +477,19 @@ const roadTex=canvasTex(256,512,(c,w,h)=>{
   c.fillStyle='#e8ecef';c.fillRect(w*0.035,0,w*0.022,h);c.fillRect(w*0.943,0,w*0.022,h);
 });
 // GP barrier, top to bottom (the wall runs 3.4 m above the road to 3 m below; road level is at y=68):
-// catch fence wrapped in branded scrim with invented sponsors, striped barrier top, TecPro blocks, concrete
+// catch fence wrapped in branded scrim with the hackathon sponsors (TELUS, Tangerine, OLLON), striped barrier top,
+// TecPro blocks, concrete
 const wallTex=canvasTex(512,128,(c,w,h)=>{
-  const cols=['#0f2f5a','#15171c','#7a0f16','#0c3b2e'],names=['KINETIC','VELOCE','MERIDIAN','HALCYON'];
   c.fillStyle='#1b1f24';c.fillRect(0,0,w,4);
-  for(let k=0;k<4;k++){c.fillStyle=cols[k];c.fillRect(k*128,4,128,40);c.fillStyle=k===2?'#ffd24a':'#eef2f5';c.font='800 21px "Arial Narrow",Arial,sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(names[k],k*128+64,25);}
+  const bw=w/3,board=(k,bg,draw)=>{c.fillStyle=bg;c.fillRect(k*bw,4,bw,40);c.save();c.translate(k*bw+bw/2,25);draw();c.restore();},
+    txt=(t,font,col,x=0)=>{c.font=font;c.fillStyle=col;c.textAlign='center';c.textBaseline='middle';c.fillText(t,x,0);};
+  // TELUS: white wordmark on purple, green leaf mark
+  board(0,'#4B286D',()=>{txt('TELUS','900 25px "Arial Black",Arial,sans-serif','#FFFFFF',10);
+    c.fillStyle='#66CC00';c.beginPath();c.ellipse(-50,-1,9,5,-0.7,0,TAU);c.fill();c.beginPath();c.ellipse(-42,5,6,3.5,-0.3,0,TAU);c.fill();});
+  // Tangerine: white wordmark on orange
+  board(1,'#F37021',()=>{txt('Tangerine','700 25px "Trebuchet MS",Arial,sans-serif','#FFFFFF');});
+  // OLLON: white wordmark on black, red underline
+  board(2,'#111317',()=>{txt('OLLON','900 26px "Arial Black",Arial,sans-serif','#FFFFFF');c.fillStyle='#E10600';c.fillRect(-40,12,80,3);});
   c.strokeStyle='rgba(0,0,0,.18)';c.lineWidth=1;for(let x=-40;x<w;x+=6){c.beginPath();c.moveTo(x,4);c.lineTo(x+40,44);c.stroke();}
   c.fillStyle='#2a2f35';for(let x=0;x<w;x+=64)c.fillRect(x,0,3,44);
   for(let x=0;x<w;x+=32){c.fillStyle=(x/32)%2?'#e4e7ea':'#c22a2e';c.fillRect(x,44,32,6);}
@@ -1519,7 +1527,9 @@ let FC=0;const TC=[...document.querySelectorAll('#tc s')];
 function tcTick(){FC=(FC+1)&127;const g=FC^(FC>>1);for(let i=0;i<7;i++)TC[i+2].classList.toggle('on',!!((g>>(6-i))&1));}
 function tcGeom(){const r=stage.getBoundingClientRect(),a=TC[0].getBoundingClientRect(),b=TC[8].getBoundingClientRect();
   return [r2(a.left+a.width/2-r.left),r2(a.top+a.height/2-r.top),r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top),r2(a.width)];}
-function updateCalib(){let on=calibKey;for(const d of REMOTE.dev.values())if(d.sim)on=true;document.body.classList.toggle('calib-on',on);}
+function updateCalib(){let on=calibKey;for(const d of REMOTE.dev.values())if(d.sim)on=true;document.body.classList.toggle('calib-on',on);
+  const b=$('calibBtn');b.setAttribute('aria-pressed',on?'true':'false');b.querySelector('b').textContent=on?'On':'Off';}
+$('calibBtn').addEventListener('click',e=>{calibKey=!calibKey;updateCalib();e.currentTarget.blur();});
 // the edge dots: [x, y, colour class] each, in stage pixels
 function calibExtra(){const r=stage.getBoundingClientRect(),out=[];
   for(const e of document.querySelectorAll('.calib i[data-c]')){const b=e.getBoundingClientRect();out.push(r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top),+e.dataset.c);}

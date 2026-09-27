@@ -64,11 +64,9 @@ body[data-view="setup"] .view[data-view="setup"],body[data-view="phone"] .view[d
 .stage:focus-visible{outline:2px solid var(--red-hi);outline-offset:-2px;}
 .stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
 
-  .visorframe{position:absolute;inset:3% 1.6% 4%;border-radius:12% / 24%;pointer-events:none;box-shadow:0 0 0 100vmax rgba(3,5,7,.9),inset 0 0 36px 12px rgba(0,0,0,.55);}
 #drops{pointer-events:none;}
 #combiner{position:absolute;pointer-events:none;border-radius:18px;background:radial-gradient(closest-side,rgba(3,9,13,.5),rgba(3,9,13,.34) 70%,rgba(3,9,13,0));}
 #combiner[hidden]{display:none;}
-.helmet{position:absolute;inset:0;pointer-events:none;background:radial-gradient(135% 125% at 50% 56%,transparent 60%,rgba(0,0,0,.62) 100%);}
 #visor{--vc:#FFC247;position:absolute;left:0;right:0;top:0;height:16%;pointer-events:none;opacity:0;}
 #visor::before{content:"";position:absolute;left:6%;right:6%;top:0;height:4px;background:var(--vc);}
 .flash{position:absolute;inset:0;pointer-events:none;background:rgb(255 75 58 / .28);box-shadow:inset 0 0 0 5px rgb(255 75 58);opacity:0;}
@@ -111,13 +109,14 @@ body[data-view="setup"] .view[data-view="setup"],body[data-view="phone"] .view[d
   border-left:3px solid var(--caution);clip-path:polygon(0 0,100% 0,calc(100% - 8px) 100%,0 100%);}
 .drop:hover{background:rgb(40 28 4 / .9);}
 /* PC visor: the phone's visor HUD (boxes, call signs, radar, tracker, flags) drawn on the sim screen itself */
-.pcvisor{position:absolute;right:18px;bottom:18px;z-index:40;padding:9px 14px;border:0;background:rgb(10 10 12 / .8);color:var(--muted);font:700 12px/1 var(--f-ui);letter-spacing:.1em;text-transform:uppercase;cursor:pointer;
+.stagebtns{position:absolute;right:18px;bottom:18px;z-index:40;display:flex;gap:8px;}
+.pcvisor{padding:9px 14px;border:0;background:rgb(10 10 12 / .8);color:var(--muted);font:700 12px/1 var(--f-ui);letter-spacing:.1em;text-transform:uppercase;cursor:pointer;
   border-right:3px solid var(--faint);clip-path:polygon(8px 0,100% 0,100% 100%,0 100%);}
 .pcvisor b{color:var(--ink);margin-left:6px;}
 .pcvisor[aria-pressed="true"]{border-right-color:var(--red-hi);}
 .pcvisor[aria-pressed="true"] b{color:var(--red-hi);}
 .pcvisor:hover{background:rgb(30 30 34 / .9);}
-body.calib-on .pcvisor{bottom:124px;}
+body.calib-on .stagebtns{bottom:124px;}
 .toast{position:absolute;left:50%;top:18%;transform:translateX(-50%);max-width:min(460px,80%);padding:12px 18px;background:rgb(12 12 14 / .92);border-top:3px solid var(--red);font:14px/1.45 var(--f-ui);color:var(--ink);text-align:center;pointer-events:none;}
 .toast b{font:700 italic 22px/1.15 var(--f-ui);text-transform:uppercase;display:block;}
 .toast b.safe{color:var(--safe);} .toast b.near{color:var(--caution);} .toast b.contact{color:var(--red-hi);} .toast b.info{color:var(--caution);}

@@ -29,9 +29,7 @@
   <section class="stage" id="stage" aria-label="Driver's view simulation" tabindex="-1">
     <canvas id="gl"></canvas>
     <div id="sprayfx" aria-hidden="true"></div>
-    <div class="helmet"></div>
     <canvas id="drops" aria-hidden="true"></canvas>
-    <div class="visorframe" aria-hidden="true"></div>
     <div id="rearfx" aria-hidden="true"></div>
     <div class="calib" aria-hidden="true"><i class="c0"></i><i class="c1"></i><i class="c2"></i><i class="c3"></i><i class="e0 b" data-c="2"></i><i class="e1 m" data-c="3"></i><i class="e2 r" data-c="0"></i><i class="e3 g" data-c="1"></i><i class="e4 r" data-c="0"></i><i class="e5 b" data-c="2"></i><b class="tc" id="tc"><s></s><s></s><s></s><s></s><s></s><s></s><s></s><s></s><s></s></b></div>
     <div id="combiner" aria-hidden="true"></div>
@@ -41,7 +39,10 @@
     <div class="status" id="status"></div>
     <div class="toast" id="toast" hidden></div>
     <button class="drop" id="dropBtn" hidden>Drop hazard ahead · X</button>
-    <button class="pcvisor" id="pcVisor" aria-pressed="false" title="Show the visor HUD on this screen (V)">Visor HUD <b>Off</b></button>
+    <div class="stagebtns">
+      <button class="pcvisor" id="calibBtn" aria-pressed="false" title="Show the calibration dots for phone SIM AR (K). They also come on by themselves while a phone is in SIM mode.">Dots <b>Off</b></button>
+      <button class="pcvisor" id="pcVisor" aria-pressed="false" title="Show the visor HUD on this screen (V)">Visor HUD <b>Off</b></button>
+    </div>
     <div class="touch" id="touch" hidden>
       <div><button data-k="left" aria-label="Steer left">◀</button><button data-k="right" aria-label="Steer right">▶</button></div>
       <div><button data-k="brake">Brake</button><button data-k="gas">Gas</button></div>
