@@ -303,5 +303,30 @@ check(all(LIB.markers_homography(*src, *bad) == 0 and LIB.markers_homography(*ba
 flipped = np.array(dst).reshape(4, 2)[[1, 0, 3, 2]].reshape(-1)
 check(LIB.markers_homography(*src, *flipped) == 1, "homography accepts a mirrored convex screen")
 
+# extra edge dots: found near a prediction, and the fit recovers a known lens bend (barrel distortion)
+fr2 = np.full((H, W, 4), 20, np.uint8); fr2[..., 3] = 255
+for (cx0, cy0), col in [((160, 30), (20, 70, 240)), ((100, 30), (20, 70, 240))]:
+    fr2[(xx - cx0) ** 2 + (yy - cy0) ** 2 <= 110] = (235, 235, 235, 255)
+    fr2[(xx - cx0) ** 2 + (yy - cy0) ** 2 <= 56] = (0, 0, 0, 255)
+    fr2[(xx - cx0) ** 2 + (yy - cy0) ** 2 <= 25] = col + (255,)
+np.ctypeslib.as_array(LIB.markers_frame(), shape=(W * H * 4,))[:] = fr2.reshape(-1)
+hit = LIB.markers_find_near(W, H, 2, 150.0, 34.0, 25.0); NP = np.ctypeslib.as_array(LIB.markers_near(), shape=(2,))
+check(hit == 1 and np.hypot(NP[0] - 160.5, NP[1] - 30.5) < 1.0, f"finds an edge dot near its prediction and skips the same colour farther away ({NP[0]:.1f}, {NP[1]:.1f})")
+check(LIB.markers_find_near(W, H, 0, 150.0, 34.0, 25.0) == 0, "no dot of another colour is invented")
+Htrue = np.array([[0.9, 0.05, 120], [-0.03, 0.85, 60], [2e-5, 1e-5, 1]]); K1, CX, CY, RN = -0.12, 640.0, 360.0, 734.0
+stage = [(x, y) for x, y in [(28, 28), (1252, 28), (1252, 692), (28, 692), (334, 28), (946, 28), (1252, 360), (946, 692), (334, 692), (28, 360)]]
+IN = np.ctypeslib.as_array(LIB.markers_fit_in(), shape=(256,))
+def distort(u):   # invert u = c + (d - c)(1 + k1 r_d^2 / rn^2) by fixed-point iteration
+    d = u.copy()
+    for _ in range(30): r2 = ((d - [CX, CY]) ** 2).sum() / RN ** 2; d = np.array([CX, CY]) + (u - [CX, CY]) / (1 + K1 * r2)
+    return d
+for i, (x, y) in enumerate(stage):
+    p = Htrue @ [x, y, 1]; d = distort(p[:2] / p[2]); IN[4 * i:4 * i + 4] = [x, y, d[0], d[1]]
+okfit = LIB.markers_fit(len(stage), CX, CY, RN, 0.0, 1); FO = np.ctypeslib.as_array(LIB.markers_fit_out(), shape=(2,))
+check(okfit == 1 and abs(FO[0] - K1) < 0.01 and FO[1] < 0.2, f"10-dot fit recovers the lens bend (k1 {FO[0]:.3f} vs {K1}, rms {FO[1]:.3f} px)")
+LIB.markers_fit(4, CX, CY, RN, 0.0, 0); rms4 = np.ctypeslib.as_array(LIB.markers_fit_out(), shape=(2,))[1]
+LIB.markers_fit(len(stage), CX, CY, RN, 0.0, 0); rms10 = np.ctypeslib.as_array(LIB.markers_fit_out(), shape=(2,))[1]
+check(rms10 > 1.0, f"a plain homography cannot absorb the bend ({rms10:.2f} px rms over 10 dots)")
+
 print("\nall checks passed" if ok else "\nSOME CHECKS FAILED")
 raise SystemExit(0 if ok else 1)

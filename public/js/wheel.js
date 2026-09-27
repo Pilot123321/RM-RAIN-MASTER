@@ -69,7 +69,7 @@ function onState(m){
   if(m.ffb){FFB.v=m.ffb;FFB.t=performance.now();}if(m.scr)S.scr=m.scr;
   const behind=m.bh?{d:m.bh[0],side:m.bh[1],cl:m.bh[2]}:null;
   if(behind&&!S.behind&&S.running&&navigator.vibrate){navigator.vibrate([30,70,30]);FFB.hold=performance.now()+160;}S.behind=behind;rearGlow($('rearfx'),REAR,S.running?behind:null);
-  W={tc:m.tc||null,player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null,lapc:p[7]||0,brk:p[8]||0,thr:p[9]||0,gear:p[10]>=0?p[10]:p[10]===-2?0:null,rev:p[10]===-2,rpm:p[11]||0,beta:p[12]||0,steer:p[13]||0},radar,behind,mk:m.mk||null,scr:m.scr||null,fov:m.fov||60,cm:m.cm||null,spray:m.sp||0,flags:m.fg?Uint8Array.from(m.fg.slice(1)):null,secLen:m.fg?m.fg[0]:0,
+  W={tc:m.tc||null,player:{s:p[0],lat:p[1],psi:p[2],latV:p[3],slideV:p[4],v:p[5],vx:m.dr?p[6]:null,lapc:p[7]||0,brk:p[8]||0,thr:p[9]||0,gear:p[10]>=0?p[10]:p[10]===-2?0:null,rev:p[10]===-2,rpm:p[11]||0,beta:p[12]||0,steer:p[13]||0},radar,behind,mk:m.mk||null,mx:m.mx||null,scr:m.scr||null,fov:m.fov||60,cm:m.cm||null,spray:m.sp||0,flags:m.fg?Uint8Array.from(m.fg.slice(1)):null,secLen:m.fg?m.fg[0]:0,
     traffic:m.tr.map(c=>({s:c[0],lat:c[1],latV:c[2],v:c[3],vis:!!c[4],closing:!!c[5],lapc:c[6]||0})),hazards:hz,alert:m.a,near:m.ni>=0?hz[m.ni]:null,dNear:m.dn,
     vis:m.vis,flagOn:!!m.fo,sc:{flag:m.fl||null},opts:{driver:m.dr?'drive':'model',hud:m.hd!==0},t:m.tm};
   Wt=performance.now();if(HUD)HUD.NAV.zoom=m.z||1;
@@ -289,7 +289,8 @@ $('bFlip').onclick=()=>{S.yawInv=!S.yawInv;recenterAR();syncOpts();};
 // the radar and flags sit exactly on the sim picture as the phone moves.
 let PHX=null;
 const SC=window.SimCalibration;
-const SIMAR={fc:null,fcAt:0,sync:0,grab:document.createElement('canvas'),frame:document.createElement('canvas'),off:document.createElement('canvas'),tracker:new SC.Tracker(),t:-Infinity,frameAt:0,videoTime:-1,geometry:'',error:'',delay:110};
+const SIMAR={model:null,k1:0,fc:null,fcAt:0,sync:0,grab:document.createElement('canvas'),frame:document.createElement('canvas'),off:document.createElement('canvas'),tracker:new SC.Tracker(),t:-Infinity,frameAt:0,videoTime:-1,geometry:'',error:'',delay:110};
+try{const k=+localStorage.getItem('rw.k1');if(Number.isFinite(k))SIMAR.k1=clamp(k,-0.35,0.35);}catch(e){}
 try{const delay=localStorage.getItem('rw.simDelay');if(delay!==null&&Number.isFinite(+delay))SIMAR.delay=clamp(+delay,0,300);}catch(e){}
 $('simDelay').value=SIMAR.delay;$('simDelayValue').textContent=SIMAR.delay+' ms';
 $('simDelay').oninput=e=>{SIMAR.delay=clamp(+e.target.value,0,300);$('simDelayValue').textContent=SIMAR.delay+' ms';try{localStorage.setItem('rw.simDelay',SIMAR.delay);}catch(e){}};
@@ -323,9 +324,39 @@ function simCapture(now){
     const mask=PHX.markers_find(w,h),F=new Float64Array(PHX.memory.buffer,PHX.markers_found(),8);
     const points=[0,1,2,3].map(i=>[F[2*i]*f.width/w,F[2*i+1]*f.height/h]);
     SIMAR.tracker.update(mask,SC.frameToCanvas(points,f.width,f.height,cv.width,cv.height),now);
-    SIMAR.fc=null;if(SIMAR.tracker.ready(now))readTimecode(f);
+    SIMAR.fc=null;SIMAR.model=null;if(SIMAR.tracker.ready(now)){fitModel(f,w,h);readTimecode(f);}
   }catch(e){SIMAR.tracker.reset();SIMAR.error='Screen detection failed. Reload this page to retry.';}
 }
+// Lens-true mapping: the corners give a first homography, which predicts where the six edge dots are; each is looked
+// for in a small window there (C++), and all dots found fit the homography plus the lens bend (k1) together. A phone
+// lens bends straight lines a little, which a 4-point homography cannot follow; that is what made the HUD's corners
+// curve differently from the sim's. k1 belongs to the camera, so it is averaged over time and remembered.
+// Detection noise is also calmed: a dot that moved less than 2 px is treated as still (low-pass), a real move is
+// taken as is, so the HUD stays put when the phone does and follows at once when it moves.
+function fitModel(f,w,h){
+  const mk=W&&W.mk,mx=W&&W.mx,d=SIMAR.tracker.points;if(!mk||!d)return;
+  if(!PHX.markers_homography(mk[0],mk[1],mk[2],mk[3],mk[4],mk[5],mk[6],mk[7],d[0][0],d[0][1],d[1][0],d[1][1],d[2][0],d[2][1],d[3][0],d[3][1]))return;
+  const H4=Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9)),c=SC.cover(f.width,f.height,cv.width,cv.height);
+  const toGrab=(X,Y)=>[(X-c.x)/c.scale*w/f.width,(Y-c.y)/c.scale*h/f.height],toCanvas=(gx,gy)=>[c.x+gx*f.width/w*c.scale,c.y+gy*f.height/h*c.scale];
+  const pairs=[];for(let i=0;i<4;i++)pairs.push([i,mk[2*i],mk[2*i+1],d[i][0],d[i][1]]);
+  if(mx){const cg=d.map(q=>toGrab(q[0],q[1]));
+    for(let i=0;i<mx.length;i+=3){const p=SC.project(H4,mx[i],mx[i+1]);if(!p)continue;const g=toGrab(p[0],p[1]);
+      const rad=clamp(0.3*Math.min(...cg.map(q=>Math.hypot(q[0]-g[0],q[1]-g[1]))),5,40);
+      if(PHX.markers_find_near(w,h,mx[i+2],g[0],g[1],rad)){const N=new Float64Array(PHX.memory.buffer,PHX.markers_near(),2),q=toCanvas(N[0],N[1]);pairs.push([4+i/3,mx[i],mx[i+1],q[0],q[1]]);}}}
+  const prev=SIMAR.prevPts||(SIMAR.prevPts=new Map());
+  for(const p of pairs){const o=prev.get(p[0]);if(o){const dx=p[3]-o[0],dy=p[4]-o[1];if(Math.hypot(dx,dy)<2){p[3]=o[0]+dx*0.35;p[4]=o[1]+dy*0.35;}}prev.set(p[0],[p[3],p[4]]);}
+  const IN=new Float64Array(PHX.memory.buffer,PHX.markers_fit_in(),256);pairs.forEach((p,i)=>IN.set(p.slice(1),4*i));
+  const cxc=c.x+f.width*c.scale/2,cyc=c.y+f.height*c.scale/2,rn=Math.hypot(f.width,f.height)*c.scale/2;
+  const xs=d.map(q=>q[0]),span=(Math.max(...xs)-Math.min(...xs))/(f.width*c.scale),FO=()=>new Float64Array(PHX.memory.buffer,PHX.markers_fit_out(),2);
+  if(pairs.length>=8&&span>0.45&&PHX.markers_fit(pairs.length,cxc,cyc,rn,0,1)&&FO()[1]<3){
+    SIMAR.k1+=(FO()[0]-SIMAR.k1)*0.08;if(performance.now()-(SIMAR.k1Saved||0)>3000){SIMAR.k1Saved=performance.now();try{localStorage.setItem('rw.k1',SIMAR.k1.toFixed(4));}catch(e){}}}
+  let n=pairs.length;if(!PHX.markers_fit(n,cxc,cyc,rn,SIMAR.k1,0))return;
+  if(FO()[1]>4&&n>4){n=4;if(!PHX.markers_fit(4,cxc,cyc,rn,SIMAR.k1,0))return;}   // a bad edge dot: fall back to the corners
+  SIMAR.model={H:Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9)),k1:SIMAR.k1,cx:cxc,cy:cyc,rn,n,at:SIMAR.frameAt};}
+// screen point -> camera canvas through the fitted model: homography, then the lens bend (inverse of the fit's
+// undistortion, a few fixed-point steps)
+function modelMap(M,x,y){const u=SC.project(M.H,x,y);if(!u)return null;if(!M.k1)return u;
+  const ux=u[0]-M.cx,uy=u[1]-M.cy;let fx=ux,fy=uy;for(let i=0;i<4;i++){const f=1+M.k1*(fx*fx+fy*fy)/(M.rn*M.rn);fx=ux/f;fy=uy/f;}return [M.cx+fx,M.cy+fy];}
 // Exact timing: the sim shows its frame number as a strip of black/white cells (Gray code, so a camera exposure that
 // straddles two frames reads as one of them, never garbage). Read it from this camera frame through the homography
 // and draw the HUD of exactly that game frame. Every successful read also measures the real display + camera delay,
@@ -354,9 +385,9 @@ function simSnap(now){
     return sn.w;}
   return null;}
 function simPips(Wd,H,u){const cols=['#FF3B3B','#3BF03B','#3B6BFF','#F03BF0'],m=SIMAR.tracker.mask,locked=SIMAR.tracker.ready(performance.now());
-  cx.save();const x0=Wd/2-62*u,y0=H*0.04;cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(x0-8*u,y0-6*u,175*u,24*u);
+  cx.save();const x0=Wd/2-62*u,y0=H*0.04;cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(x0-8*u,y0-6*u,215*u,24*u);
   cols.forEach((c,i)=>{cx.beginPath();cx.arc(x0+i*16*u,y0+6*u,5*u,0,Math.PI*2);if(m>>i&1){cx.fillStyle=c;cx.fill();}else{cx.strokeStyle=c;cx.lineWidth=1.5*u;cx.stroke();}});
-  cx.fillStyle=locked?'#3BF08A':'#FFC247';cx.font=`700 ${10*u}px "B612 Mono", monospace`;cx.textBaseline='middle';cx.fillText(locked?(performance.now()-(SIMAR.sync||0)<400?'LOCKED · SYNC':'LOCKED'):'SEARCHING',x0+62*u,y0+6*u);cx.restore();}
+  cx.fillStyle=locked?'#3BF08A':'#FFC247';cx.font=`700 ${10*u}px "B612 Mono", monospace`;cx.textBaseline='middle';cx.fillText(locked?'LOCKED · '+(SIMAR.model?SIMAR.model.n:4)+' DOTS'+(performance.now()-(SIMAR.sync||0)<400?' · SYNC':''):'SEARCHING',x0+62*u,y0+6*u);cx.restore();}
 function simFrame(view,now,dt,Wd,H,u){
   const f=SIMAR.frame;
   if(SIMAR.frameAt){const c=SC.cover(f.width,f.height,Wd,H);cx.drawImage(f,c.x,c.y,f.width*c.scale,f.height*c.scale);}
@@ -365,18 +396,16 @@ function simFrame(view,now,dt,Wd,H,u){
     simPips(Wd,H,u);cx.save();cx.fillStyle='rgba(0,0,0,.55)';cx.fillRect(Wd*0.2,H*0.42,Wd*0.6,H*0.16);cx.fillStyle='#E3EBF0';cx.textAlign='center';cx.textBaseline='middle';
     const hint=SIMAR.error||(!PHX?'Loading screen detector…':now-Wt>500?'Waiting for live game data':!SIMAR.frameAt?'Waiting for a camera frame':mk?'Point the camera at the game screen':'Waiting for the calibration dots on the sim');
     cx.font=`700 ${14*u}px "B612 Mono", monospace`;cx.fillText(hint,Wd/2,H*0.475);
-    cx.font=`${11*u}px "B612 Mono", monospace`;cx.fillText('Keep all four dots visible. Move closer if they look small.',Wd/2,H*0.53);cx.restore();return;}
+    cx.font=`${11*u}px "B612 Mono", monospace`;cx.fillText('Keep the corner dots visible. Move closer if they look small.',Wd/2,H*0.53);cx.restore();return;}
   simPips(Wd,H,u);
-  const d=SIMAR.tracker.points;
-  if(!PHX.markers_homography(mk[0],mk[1],mk[2],mk[3],mk[4],mk[5],mk[6],mk[7],d[0][0],d[0][1],d[1][0],d[1][1],d[2][0],d[2][1],d[3][0],d[3][1]))return;
-  const Hm=Float64Array.from(new Float64Array(PHX.memory.buffer,PHX.markers_hom(),9));
-  if(!SC.validHomography(Hm,gw,gh)){SIMAR.tracker.reset();return;}
-  const map=(x,y)=>SC.project(Hm,x,y);
+  const M=SIMAR.model;if(!M)return;
+  if(!SC.validHomography(M.H,gw,gh)){SIMAR.tracker.reset();return;}
+  const map=(x,y)=>modelMap(M,x,y);
   // the HUD at game-screen size (60 % resolution), then warped onto the screen in the camera image
   const k0=0.6,off=SIMAR.off,ow=Math.round(gw*k0),oh=Math.round(gh*k0);if(off.width!==ow||off.height!==oh){off.width=ow;off.height=oh;}
   const oc=off.getContext('2d');oc.setTransform(1,0,0,1,0,0);oc.clearRect(0,0,ow,oh);oc.setTransform(k0,0,0,k0,0,0);
   HUD.setSize(gw,gh);HUD.drawScreen(oc,view,now/1000,dt,true);
-  const tri=(S0)=>{const Q=S0.map(q=>map(q[0],q[1])),P=S0.map(q=>[q[0]*k0,q[1]*k0]);
+  const tri=(S0)=>{const Q=S0.map(q=>map(q[0],q[1]));if(Q.some(q=>!q))return;const P=S0.map(q=>[q[0]*k0,q[1]*k0]);
     const a1x=P[1][0]-P[0][0],a1y=P[1][1]-P[0][1],a2x=P[2][0]-P[0][0],a2y=P[2][1]-P[0][1],den=a1x*a2y-a2x*a1y;if(!den)return;
     const b1x=Q[1][0]-Q[0][0],b1y=Q[1][1]-Q[0][1],b2x=Q[2][0]-Q[0][0],b2y=Q[2][1]-Q[0][1];
     const a=(b1x*a2y-b2x*a1y)/den,c=(b2x*a1x-b1x*a2x)/den,b=(b1y*a2y-b2y*a1y)/den,dd=(b2y*a1x-b1y*a2x)/den,e=Q[0][0]-a*P[0][0]-c*P[0][1],f=Q[0][1]-b*P[0][0]-dd*P[0][1];

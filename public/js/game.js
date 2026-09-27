@@ -1432,7 +1432,7 @@ function phoneFrame(w,t,dt,now){
     drive?clamp((-Math.min(P.kf||0,P.kr||0)-0.1)*3,0,1):0,
     drive?clamp(((P.kr||0)-0.12)*3,0,1):0,
     w.spray||0, drive?(P.aqua||0):0].map(r2);
-  remoteSend({t:'w',src:SOURCE_ID,trackRev,worldRev,tm:r2(t),tw:Math.round(now),cm:[r4(camera.position.x),r4(camera.position.y),r4(camera.position.z),r4(camera.quaternion.x),r4(camera.quaternion.y),r4(camera.quaternion.z),r4(camera.quaternion.w)],fov:camera.fov,mk:calibOn()?calibCentres():null,fc:calibOn()?FC:null,tc:calibOn()?tcGeom():null,fg:w.flags?[r2(w.secLen)].concat(Array.from(w.flags)):null,dr:drive?1:0,hd:w.opts.hud?1:0,bh:w.behind?[r2(w.behind.d),w.behind.side,r2(w.behind.cl)]:null,scr:[Math.round(cw),Math.round(ch)],sp:r2(w.spray||0),rd,ffb,
+  remoteSend({t:'w',src:SOURCE_ID,trackRev,worldRev,tm:r2(t),tw:Math.round(now),cm:[r4(camera.position.x),r4(camera.position.y),r4(camera.position.z),r4(camera.quaternion.x),r4(camera.quaternion.y),r4(camera.quaternion.z),r4(camera.quaternion.w)],fov:camera.fov,mk:calibOn()?calibCentres():null,mx:calibOn()?calibExtra():null,fc:calibOn()?FC:null,tc:calibOn()?tcGeom():null,fg:w.flags?[r2(w.secLen)].concat(Array.from(w.flags)):null,dr:drive?1:0,hd:w.opts.hud?1:0,bh:w.behind?[r2(w.behind.d),w.behind.side,r2(w.behind.cl)]:null,scr:[Math.round(cw),Math.round(ch)],sp:r2(w.spray||0),rd,ffb,
     p:[r2(P.s),r2(P.lat),r4(P.psi||0),r2(P.latV||0),r2(P.slideV||0),r2(P.v),r2(P.vx==null?P.v:P.vx),P.lapc||0,r2(P.brk||0),r2(P.thr||0),P.rev?-2:P.gear==null?-1:P.gear,Math.round(P.rpm||0),r4(P.beta||0),r4(P.steer||0)],
     tr:w.traffic.map(c=>[r2(c.s),r2(c.lat),r2(c.latV),r2(c.v),c.vis?1:0,c.closing?1:0,c.lapc||0]),
     hz:w.hazards.map(h=>[h.type,r2(h.s),r2(h.lat),r2(h.yaw||0),h.halfLen,h.halfW,h.vis?1:0,h.gone?1:0,r2(h.avoid),h.vpass,h.label]),
@@ -1466,6 +1466,10 @@ function tcTick(){FC=(FC+1)&127;const g=FC^(FC>>1);for(let i=0;i<7;i++)TC[i+2].c
 function tcGeom(){const r=stage.getBoundingClientRect(),a=TC[0].getBoundingClientRect(),b=TC[8].getBoundingClientRect();
   return [r2(a.left+a.width/2-r.left),r2(a.top+a.height/2-r.top),r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top),r2(a.width)];}
 function updateCalib(){let on=calibKey;for(const d of REMOTE.dev.values())if(d.sim)on=true;document.body.classList.toggle('calib-on',on);}
+// the edge dots: [x, y, colour class] each, in stage pixels
+function calibExtra(){const r=stage.getBoundingClientRect(),out=[];
+  for(const e of document.querySelectorAll('.calib i[data-c]')){const b=e.getBoundingClientRect();out.push(r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top),+e.dataset.c);}
+  return out;}
 function calibCentres(){const r=stage.getBoundingClientRect(),out=[];
   for(const i of [0,1,2,3]){const b=document.querySelector('.calib .c'+i).getBoundingClientRect();out.push(r2(b.left+b.width/2-r.left),r2(b.top+b.height/2-r.top));}
   return out;}
@@ -1839,5 +1843,5 @@ PHYS.ready.then(()=>{
   requestAnimationFrame(frame);
   remoteInit();
 });
-window.__dbg={scene,renderer,sprayPts,PHYS,rainL,get tg(){return trackGroup;},hc,get world(){return world;},ui,REMOTE,kap:s=>sampleArr(KC,s),get streaks(){return STREAKS;},MATS,get pg(){return playerGLB;},get glb(){return CAR_GLB;}};
+window.__dbg={get camera(){return camera;},worldPos,gameCamera,get cw(){return cw;},get ch(){return ch;},scene,renderer,sprayPts,PHYS,rainL,get tg(){return trackGroup;},hc,get world(){return world;},ui,REMOTE,kap:s=>sampleArr(KC,s),get streaks(){return STREAKS;},MATS,get pg(){return playerGLB;},get glb(){return CAR_GLB;}};
 })();

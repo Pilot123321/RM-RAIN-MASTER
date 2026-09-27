@@ -313,6 +313,12 @@ body.calib-on .calib{display:block;}
 .calib .c1{right:28px;top:28px;background:#14F014;}
 .calib .c2{right:28px;bottom:28px;background:#1446FF;}
 .calib .c3{left:28px;bottom:28px;background:#F014F0;}
+/* six more dots along the edges: with ten points the phone measures its lens bend and averages out detection noise */
+/* smaller than the corner dots, so the corner search (which prefers the biggest dot of each colour) never takes one */
+.calib i[data-c]{width:28px;height:28px;box-shadow:0 0 0 6px #000,0 0 0 9px #fff;}
+.calib .e0{left:calc(25% - 14px);top:32px;} .calib .e1{left:calc(75% - 14px);top:32px;} .calib .e2{right:32px;top:calc(50% - 14px);}
+.calib .e3{left:calc(75% - 14px);bottom:32px;} .calib .e4{left:calc(25% - 14px);bottom:32px;} .calib .e5{left:32px;top:calc(50% - 14px);}
+.calib .r{background:#FF1414;} .calib .g{background:#14F014;} .calib .b{background:#1446FF;} .calib .m{background:#F014F0;}
 /* visual timecode: the frame number (7-bit Gray code) as black/white cells, after a white and a black reference cell.
    The phone reads it from the camera image and draws the HUD of exactly the frame that is on the screen. */
 .calib .tc{position:absolute;left:50%;top:24px;transform:translateX(-50%);display:flex;box-shadow:0 0 0 5px #777;}
