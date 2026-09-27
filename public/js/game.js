@@ -488,8 +488,15 @@ const wallTex=canvasTex(512,128,(c,w,h)=>{
     c.fillStyle='#66CC00';c.beginPath();c.ellipse(-50,-1,9,5,-0.7,0,TAU);c.fill();c.beginPath();c.ellipse(-42,5,6,3.5,-0.3,0,TAU);c.fill();});
   // Tangerine: white wordmark on orange
   board(1,'#F37021',()=>{txt('Tangerine','700 25px "Trebuchet MS",Arial,sans-serif','#FFFFFF');});
-  // OLLON: white wordmark on black, red underline
-  board(2,'#111317',()=>{txt('OLLON','900 26px "Arial Black",Arial,sans-serif','#FFFFFF');c.fillStyle='#E10600';c.fillRect(-40,12,80,3);});
+  // OLLON: the ollon logo (dark grey o-l-l-n, the second o an orange power symbol) on white, drawn as vector
+  // shapes traced from the logo (978 x 390 units, strokes 50 wide)
+  board(2,'#F4F4F2',()=>{const k=31/390;c.scale(k,k);c.translate(-489,-195);const grey='#4B4B57',orange='#E0804D';
+    c.lineWidth=50;c.lineCap='butt';
+    c.strokeStyle=grey;c.beginPath();c.arc(128,250,93,0,TAU);c.stroke();                 // o
+    c.fillStyle=grey;c.fillRect(288,15,50,355);c.fillRect(395,15,50,355);                // l l
+    c.strokeStyle=orange;c.beginPath();c.arc(610,250,98,-Math.PI/2+0.42,-Math.PI/2-0.42+TAU);c.stroke();   // power ring, open at the top
+    c.fillStyle=orange;c.beginPath();c.moveTo(585,125);c.arc(607.5,125,22.5,Math.PI,0);c.lineTo(630,205);c.arc(607.5,205,22.5,0,Math.PI);c.closePath();c.fill();   // power bar
+    c.strokeStyle=grey;c.beginPath();c.moveTo(797,370);c.lineTo(797,230);c.arc(873,230,76,Math.PI,0);c.lineTo(949,370);c.stroke();});   // n
   c.strokeStyle='rgba(0,0,0,.18)';c.lineWidth=1;for(let x=-40;x<w;x+=6){c.beginPath();c.moveTo(x,4);c.lineTo(x+40,44);c.stroke();}
   c.fillStyle='#2a2f35';for(let x=0;x<w;x+=64)c.fillRect(x,0,3,44);
   for(let x=0;x<w;x+=32){c.fillStyle=(x/32)%2?'#e4e7ea':'#c22a2e';c.fillRect(x,44,32,6);}
