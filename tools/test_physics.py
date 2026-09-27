@@ -176,5 +176,30 @@ for steer in np.linspace(0.005, 0.2, 24):
 kmz, kfy = int(np.argmax(mz)), int(np.argmax(fy))
 check(0 < kmz < kfy, f"self-aligning torque peaks (step {kmz}) before front grip does (step {kfy}): the wheel goes light before the front slides")
 
+# ---------------- track (C++) ----------------
+print("Track (C++)")
+n = LIB.track_default(); N = LIB.track_build(n)
+check(2800 < LIB.track_len() < 3000 and LIB.track_ncorners() == 8, f"default circuit: {LIB.track_len():.0f} m, {LIB.track_ncorners()} corners, {N} samples")
+vp = np.ctypeslib.as_array(LIB.track_vprof(), shape=(N,)); lat = np.ctypeslib.as_array(LIB.track_lat(), shape=(N,))
+check(vp.min() > 15 and vp.max() <= 83.0 + 1e-9, f"speed profile {vp.min()*3.6:.0f}-{vp.max()*3.6:.0f} km/h")
+check(np.abs(lat).max() <= 4.7 + 1e-9, f"racing line stays on the road (max offset {np.abs(lat).max():.2f} m)")
+crest = LIB.track_crest()
+check(LIB.track_los(crest - 200, 0, 0.95, crest - 150, 0, 0.5) == 1 and LIB.track_los(crest - 120, 0, 0.3, crest + 60, 0, 0.3) == 0,
+      "line of sight: clear on the straight, blocked over the crest")
+check(LIB.track_water(100, 0, 0) == 0 and LIB.track_water(100, 5.5, 1) > LIB.track_water(100, 5.5, 0.5) > 0, "standing water grows with rain")
+
+# ---------------- screenshot tracer (C++) ----------------
+print("Screenshot tracer (C++)")
+W = H = 300; img = np.full((H, W, 4), 255, np.uint8)
+yy, xx = np.mgrid[0:H, 0:W]; rr = np.hypot((xx - 150) / 1.3, yy - 150)
+img[(rr > 88) & (rr < 96)] = (200, 30, 40, 255)                     # an oval lap drawn in red on white
+ctypes_buf = np.ctypeslib.as_array(LIB.trace_rgba(), shape=(W * H * 4,)); ctypes_buf[:] = img.reshape(-1)
+m = LIB.trace_run(W, H, 0, 0, 0, 0, 60.0)
+pts = np.ctypeslib.as_array(LIB.trace_points(), shape=(max(m, 0) * 2,)).reshape(-1, 2) if m > 0 else np.zeros((0, 2))
+rad = np.hypot((pts[:, 0] - 150) / 1.3, pts[:, 1] - 150) if m > 0 else np.array([0])
+check(m > 100 and LIB.trace_method() == 0 and abs(rad.mean() - 92) < 3, f"traces the oval as a centreline loop ({m} points, mean radius {rad.mean():.1f} px)")
+img[:] = 255; ctypes_buf[:] = img.reshape(-1)
+check(LIB.trace_run(W, H, 0, 0, 0, 0, 60.0) == -1, "blank image: no track found")
+
 print("\nall checks passed" if ok else "\nSOME CHECKS FAILED")
 raise SystemExit(0 if ok else 1)

@@ -16,7 +16,9 @@ html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(
 #brake{--c:var(--brake);left:0;border-right-width:1px;border-right-color:color-mix(in srgb,var(--brake) 35%,transparent);padding-left:env(safe-area-inset-left);}
 #gas{--c:var(--gas);right:0;border-left-width:1px;border-left-color:color-mix(in srgb,var(--gas) 35%,transparent);padding-right:env(safe-area-inset-right);}
 .pedal.on{background:color-mix(in srgb,var(--c) 30%,transparent);}
-.bar{position:fixed;left:26%;right:26%;bottom:max(8px,env(safe-area-inset-bottom));display:flex;justify-content:center;align-items:center;gap:5px;flex-wrap:nowrap;overflow:hidden;}
+.bar{position:fixed;left:26%;right:26%;bottom:max(8px,env(safe-area-inset-bottom));display:flex;justify-content:safe center;align-items:center;gap:5px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;}
+.bar::-webkit-scrollbar{display:none;}
+.bar button{flex:none;}
 .bar button[hidden]{display:none;}
 .bar button{white-space:nowrap;appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:6px clamp(5px,1vw,10px);font:700 clamp(9px,1.15vw,10.5px) var(--mono);letter-spacing:.03em;text-transform:uppercase;}
 .bar button.primary{background:var(--hud);color:#061016;border-color:var(--hud);}
@@ -59,3 +61,16 @@ body.ar .pedal,body.ar #bLock,body.ar #bInv{display:none!important;}
   color:var(--hud);font:700 12px var(--mono);letter-spacing:.12em;text-transform:uppercase;pointer-events:none;opacity:0;z-index:6;}
 #recenter.show{animation:rec-show 1s ease-out;}
 @keyframes rec-show{0%{opacity:0;transform:translate(-50%,-50%) scale(.9);}15%{opacity:1;transform:translate(-50%,-50%) scale(1);}70%{opacity:1;}100%{opacity:0;}}
+
+/* VR headset mode: the canvas draws both eyes (camera included), so the live video element is hidden; the button
+   bar and status fade out and come back on a tap */
+body.vr #cam{visibility:hidden;}
+body.vr .bar,body.vr .status{opacity:0;pointer-events:none;transition:opacity .3s;}
+body.vr.vrui .bar,body.vr.vrui .status{opacity:1;pointer-events:auto;}
+/* no pedals in AR/VR: the button bar can use the full width */
+body.ar .bar{left:4%;right:4%;}
+
+/* the glow layer only exists while a car is behind; on the phone it is not blended (blending a full-screen layer over
+   live video every frame is expensive on mobile GPUs) */
+#rearfx:not(.on){display:none;}
+body #rearfx{mix-blend-mode:normal;}

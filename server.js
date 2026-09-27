@@ -12,6 +12,7 @@ const path = require('path');
 const { execFile, execFileSync } = require('child_process');
 const { WebSocketServer } = require('ws');
 const QRCode = require('qrcode');
+const crypto = require('crypto');
 
 const HTTP_PORT = +process.env.PORT || 8080;
 const HTTPS_PORT = +process.env.HTTPS_PORT || 8443;
@@ -42,9 +43,22 @@ function ensureCert() {
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' };
 const SKELETON_HEAD = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}</style></head><body>';
 
+// Pairing: a phone on Wi-Fi must present this key (it is in the QR code and the link on the Mac), so nobody else on
+// the network can take over the wheel or watch the session. Phones over USB and the game page come in through this
+// Mac (loopback) and need no key. The key is kept in certs/ (git-ignored) so a restart does not unpair the phone.
+function pairKey() {
+  const f = path.join(CERT_DIR, 'pair.txt');
+  try { const k = fs.readFileSync(f, 'utf8').trim(); if (k) return k; } catch (e) {}
+  const k = crypto.randomBytes(6).toString('base64url');
+  try { fs.mkdirSync(CERT_DIR, { recursive: true }); fs.writeFileSync(f, k); } catch (e) {}
+  return k;
+}
+const PAIR = pairKey();
+const isLocal = a => a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
+
 function urls() {
   IP = lanIp();
-  return { app: 'look-ahead-radar', games: games.size, wheels: wheels.size, inputRate, lan: `https://${IP}:${HTTPS_PORT}/wheel`, usb: `http://localhost:${HTTP_PORT}/wheel`, ip: IP, adb: adbState };
+  return { app: 'look-ahead-radar', games: games.size, wheels: wheels.size, inputRate, lan: `https://${IP}:${HTTPS_PORT}/wheel?k=${PAIR}`, usb: `http://localhost:${HTTP_PORT}/wheel`, ip: IP, adb: adbState };
 }
 
 async function handler(req, res) {
@@ -58,21 +72,24 @@ async function handler(req, res) {
       res.writeHead(200, { 'content-type': TYPES['.html'], 'cache-control': 'no-store' }); return res.end(fs.readFileSync(path.join(PUB, 'wheel.html')));
     }
     if (u.pathname === '/hud.js') {
-      // the phone reuses the game's own HUD drawing code: every /*HUD>*/ ... /*<HUD*/ block in game.html
-      const src = fs.readFileSync(path.join(PUB, 'game.html'), 'utf8');
+      // the phone reuses the game's own HUD drawing code: every /*HUD>*/ ... /*<HUD*/ block in js/game.js
+      const src = fs.readFileSync(path.join(PUB, 'js', 'game.js'), 'utf8');
       const parts = [...src.matchAll(/\/\*HUD>\*\/([\s\S]*?)\/\*<HUD\*\//g)].map(m => m[1]);
       const js = `window.makeHUD=function(){
-let N=1,L=1,DS=1,PX,PZ,TX,TZ,H,SL,CORNERS=[],world=null,cw=800,ch=400;
+let N=1,L=1,DS=1,PX,PZ,TX,TZ,H,SL,LATRL=null,VPROF=null,WGL=null,WGR=null,CORNERS=[],world=null,cw=800,ch=400;
 const HW=6,WALL=6.6,RANGE=700,TAU=Math.PI*2;let RM=false;
 const clamp=(x,a,b)=>x<a?a:x>b?b:x, lerp=(a,b,t)=>a+(b-a)*t;
 const angd=(a,b)=>{let d=a-b;while(d>Math.PI)d-=TAU;while(d<-Math.PI)d+=TAU;return d;};
 ${parts.join('\n')}
-return {setCalm(v){RM=!!v;},drawNav,NAV,dSigned,wrapS,drawHeader,headerInfo,drawTracker,drawARView,drawScreen,
+return {setCalm(v){RM=!!v;},drawNav,NAV,dSigned,wrapS,drawTracker,drawFlagChip,drawARView,drawScreen,
   setSize(w,h){cw=w;ch=h;},
-  setTrack(t){N=t.N;L=t.L;DS=t.DS;PX=Float64Array.from(t.PX);PZ=Float64Array.from(t.PZ);TX=Float64Array.from(t.TX);TZ=Float64Array.from(t.TZ);H=Float64Array.from(t.H);SL=Float64Array.from(t.SL);CORNERS=t.C;},
+  setTrack(t){N=t.N;L=t.L;DS=t.DS;PX=Float64Array.from(t.PX);PZ=Float64Array.from(t.PZ);TX=Float64Array.from(t.TX);TZ=Float64Array.from(t.TZ);H=Float64Array.from(t.H);SL=Float64Array.from(t.SL);LATRL=t.LAT?Float64Array.from(t.LAT):null;VPROF=t.VP?Float64Array.from(t.VP):null;CORNERS=t.C;},
   setWorld(w){world=w;}, ready(){return !!PX;}};
 };`;
       res.writeHead(200, { 'content-type': TYPES['.js'], 'cache-control': 'no-store' }); return res.end(js);
+    }
+    if ((u.pathname === '/info' || u.pathname === '/qr.svg') && !isLocal(req.socket.remoteAddress)) {
+      res.writeHead(200, { 'content-type': TYPES['.json'], 'cache-control': 'no-store' }); return res.end(JSON.stringify({ app: 'look-ahead-radar', remote: true }));
     }
     if (u.pathname === '/info') { res.writeHead(200, { 'content-type': TYPES['.json'], 'cache-control': 'no-store' }); return res.end(JSON.stringify(urls())); }
     if (u.pathname === '/qr.svg') {
@@ -81,10 +98,11 @@ return {setCalm(v){RM=!!v;},drawNav,NAV,dSigned,wrapS,drawHeader,headerInfo,draw
     }
     const f = path.join(PUB, path.normalize(u.pathname).replace(/^(\.\.[/\\])+/, ''));
     if (f.startsWith(PUB) && fs.existsSync(f) && fs.statSync(f).isFile()) {
-      res.writeHead(200, { 'content-type': TYPES[path.extname(f)] || 'application/octet-stream' }); return res.end(fs.readFileSync(f));
+      // no-cache: the browser revalidates, so an updated game.js / physics.wasm is picked up on a normal reload
+      res.writeHead(200, { 'content-type': TYPES[path.extname(f)] || 'application/octet-stream', 'cache-control': 'no-cache' }); return res.end(fs.readFileSync(f));
     }
     res.writeHead(404); res.end('Not found');
-  } catch (e) { res.writeHead(500); res.end(String(e)); }
+  } catch (e) { console.error(e); res.writeHead(500); res.end('Server error'); }
 }
 
 // --- relay: phones -> games (input), games -> phones (alert state)
@@ -102,6 +120,9 @@ function attach(server) {
   wss.on('connection', (ws, req) => {
     const q = new URL(req.url, 'http://x').searchParams, role = q.get('role') === 'wheel' ? 'wheel' : 'game';
     ws.phoneId = (q.get('id') || 'phone').slice(0, 24);
+    const local = isLocal(req.socket.remoteAddress);
+    if (role === 'game' && !local) { ws.close(4003, 'The game connects from this computer only'); return; }
+    if (role === 'wheel' && !local && q.get('k') !== PAIR) { ws.close(4001, 'Not paired'); console.log(`Refused an unpaired phone from ${req.socket.remoteAddress}`); return; }
     const set = role === 'wheel' ? wheels : games, other = role === 'wheel' ? games : wheels;
     set.add(ws); phonesChanged();
     if (role === 'game') console.log(`Game connected (${games.size})`);

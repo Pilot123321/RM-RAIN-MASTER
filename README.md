@@ -30,6 +30,17 @@ steering wheel.
   springs back). Force feedback comes from the tyres through the vibration motor: impacts, lock-ups, kerbs,
   wheelspin and slides, front scrub, and a steering-weight hum that fades as the front goes light.
 
+- **Layout**: the sim fills the window; Setup, Phone and Circuit open as tabs over it. The game screen stays
+  clean (lap tracker, gear and speed); boxes, call signs and the radar live on the phone, AR and VR.
+- **2D radar**: flat, heading-up proximity radar (like iRacing's) with range rings, call signs, side bars when a car
+  is alongside, and yellow/red flag sectors.
+- **Flags**: ~200 m marshal sectors go yellow around a hazard and red when it blocks the track or a marshal is
+  running across; the autopilot drops to VSC pace through red.
+- **Two phones**: one as the wheel, a second as the AR/VR viewer (side-by-side stereo for a Cardboard-style
+  headset, head yaw tracked). The AR road shows the surface, barriers, a braking-guide racing line and corner
+  chevrons. Phones pair through the key in the QR code; phones over USB need none.
+- **Circuits from screenshots**: drop a screenshot anywhere on the page or paste it (Cmd+V).
+
 ### Run it
 
 Requires Node.js 18+. The physics core is prebuilt (`public/physics.wasm`), so this is enough:
@@ -55,12 +66,15 @@ Keyboard: W/↑ throttle, S/↓/Space brake, A/D steer, X drop hazard, C camera,
 
 ### Code layout
 
-- `physics/*.c`: the physics core in C, compiled to WebAssembly for the browser and to a native library for
-  the tests. `vehicle.c` covers the car, `radar.c` the radar sensor and tracker, `spray.c` the tyre spray.
-- `tools/`: Python. `build.py` compiles the C. `test_physics.py` checks the C against independent numpy
-  models and real-world figures. `physics.py` is the ctypes binding.
-- `public/css/`: all styling, including the spray-on-visor effect (a CSS backdrop blur driven by the simulation).
-- `public/game.html`: scene, driver model, HUD and UI (three.js). `public/wheel.html`: the phone.
+- `physics/*.c` (C): the car (`vehicle.c`), the 77 GHz radar sensor and tracker (`radar.c`), tyre spray (`spray.c`).
+- `physics/*.cpp` (C++): the track (`track.cpp`: smoothing, curvature, corners, elevation, barriers, racing line,
+  speed profile, line of sight, standing water) and the screenshot tracer (`trace.cpp`: colour mask, thinning, loop walk).
+  C and C++ compile into one WebAssembly module, `public/physics.wasm`, and a native library for the tests.
+- `tools/` (Python): `build.py` compiles the core with Zig; `test_physics.py` checks it against numpy reference
+  models and real-world figures; `physics.py` is the ctypes binding.
+- `public/css/` (CSS): all styling, including the spray-on-visor blur and the car-behind edge glow.
+- `public/js/game.js`, `public/js/wheel.js`: scene, driver model, HUD drawing and UI (three.js), talking to the
+  core. `public/game.html` and `public/wheel.html` are markup only.
 
 ### Radar
 
