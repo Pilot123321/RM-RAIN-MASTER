@@ -193,15 +193,27 @@ function devQuat(){const b=DO.b*D2R,a=DO.a*D2R,g=-DO.g*D2R,o=((screen.orientatio
 // Adaptive smoothing of the phone's orientation (a One-Euro-style filter on the quaternion): sensor noise makes the
 // raw pose tremble by a few tenths of a degree, which shows as a shimmering overlay when the phone is held still.
 // The filter's time constant follows the turn rate: ~80 ms when still (steady), ~10 ms when turning (no lag).
-const QF={q:null,t:0};
+const QF={q:null,t:0,w:[0,0,0],out:null};
 function slerp(a,b,k){let d=a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];if(d<0){b=b.map(v=>-v);d=-d;}
   if(d>0.9995){const r=a.map((v,i)=>v+(b[i]-v)*k),n=Math.hypot(...r);return r.map(v=>v/n);}
   const th=Math.acos(d),s0=Math.sin((1-k)*th)/Math.sin(th),s1=Math.sin(k*th)/Math.sin(th);return a.map((v,i)=>v*s0+b[i]*s1);}
+// Latency prediction, as head-mounted displays do: the pose is extrapolated ~30 ms ahead along the (smoothed)
+// angular velocity, so the overlay does not trail the world while turning. It ramps in only above ~0.3 rad/s: at
+// rest, extrapolating sensor noise would bring the shimmer back.
+const PRED_S=0.03;
+function qconj(q){return [-q[0],-q[1],-q[2],q[3]];}
 function smoothQuat(q,now){
-  if(!QF.q||now-QF.t>300){QF.q=q;QF.t=now;return q;}
-  const dt=(now-QF.t)/1000;QF.t=now;if(dt<=0)return QF.q;
+  if(!QF.q||now-QF.t>300){QF.q=q;QF.t=now;QF.w=[0,0,0];return q;}
+  const dt=(now-QF.t)/1000;QF.t=now;if(dt<=0)return QF.out||QF.q;
   const d=Math.abs(QF.q[0]*q[0]+QF.q[1]*q[1]+QF.q[2]*q[2]+QF.q[3]*q[3]),speed=2*Math.acos(Math.min(1,d))/dt;   // rad/s
-  const tau=0.01+0.07*Math.exp(-speed/0.5);QF.q=slerp(QF.q,q,1-Math.exp(-dt/tau));return QF.q;}
+  const tau=0.01+0.07*Math.exp(-speed/0.5),prev=QF.q;QF.q=slerp(QF.q,q,1-Math.exp(-dt/tau));
+  // angular velocity (world frame) from the filtered pose, smoothed over ~50 ms
+  let dq=qmul(QF.q,qconj(prev));if(dq[3]<0)dq=dq.map(v=>-v);
+  const sn=Math.hypot(dq[0],dq[1],dq[2]),ang=2*Math.atan2(sn,dq[3]),k=sn>1e-9?ang/sn/dt:0,a=1-Math.exp(-dt/0.05);
+  QF.w=QF.w.map((v,i)=>v+(dq[i]*k-v)*a);
+  const wn=Math.hypot(...QF.w),g=clamp((wn-0.3)/0.7,0,1);if(!(g>0)){QF.out=QF.q;return QF.q;}
+  const th=wn*PRED_S*g,h=Math.sin(th/2)/wn,pq=[QF.w[0]*h,QF.w[1]*h,QF.w[2]*h,Math.cos(th/2)];
+  QF.out=qmul(pq,QF.q);return QF.out;}
 // camera pose for the AR projection: pitch (down +), roll (horizon angle), yaw (+ = looking right of straight ahead)
 // the phone's own pose, before the alignment offsets
 function arPoseRaw(){
