@@ -101,6 +101,7 @@ function fixture(options = {}) {
       const pending = [...rafs.values()]; rafs.clear(); pending.forEach(callback => callback(now));
     },
     runTimeout(delay) { for (const [id, timer] of [...timers]) if (!timer.repeat && timer.delay === delay) { timers.delete(id); timer.callback(); } },
+    emit(type, event) { for (const callback of events.get(type) || []) callback(event); },
     interval(delay) { for (const timer of [...timers.values()]) if (timer.repeat && timer.delay === delay) timer.callback(); },
   };
 }
@@ -205,6 +206,17 @@ async function main() {
   autoDet.markerMask = 0;
   for (let t = 1500, v = 1.2; t <= 3600; t += 150, v += 0.05) auto.frame(t, v);
   assert(!auto.document.body.classList.contains('sim'), 'Losing the dots for 1.5 s returns to plain AR');
+
+  // steering sign: phone held sideways (landscape, screen rotation 90), level, then turned clockwise = right
+  const wheel = fixture();
+  await wheel.flush(); wheel.sockets[0].open();
+  await wheel.element('go').onclick();
+  const tilt = deg => { const r = deg * Math.PI / 180; for (let i = 0; i < 20; i++) wheel.emit('devicemotion', {accelerationIncludingGravity: {x: 9.81 * Math.cos(r), y: 9.81 * Math.sin(r), z: 0}}); };
+  const steer = () => { wheel.interval(25); const m = wheel.sockets[0].sent.filter(x => x && x.t === 'in').at(-1); return m ? m.s : NaN; };
+  tilt(0); assert.equal(steer(), 0, 'Level phone steers straight');
+  tilt(15); assert(steer() > 0.2, 'Turning the phone clockwise steers right');
+  tilt(-15); assert(steer() < -0.2, 'Turning the phone anticlockwise steers left');
+  tilt(4); const small = steer(); assert(small > 0 && small < 0.2, 'A small tilt gives a small steer, not full lock');
 
   const failed = fixture({wasmError: true});
   await failed.flush(); failed.sockets[0].open();

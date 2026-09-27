@@ -3,7 +3,7 @@
 const $=id=>document.getElementById(id), clamp=(x,a,b)=>x<a?a:x>b?b:x;
 const angd=(a,b)=>{let d=a-b;while(d>180)d-=360;while(d<-180)d+=360;return d;};
 const iOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-let lockSaved=45,invSaved=false,ffbSaved=true,flipSaved=false;try{flipSaved=localStorage.getItem('rw.flip')==='1';lockSaved=+localStorage.getItem('rw.lock')||45;invSaved=localStorage.getItem('rw.inv2')==='1';ffbSaved=localStorage.getItem('rw.ffb')!=='0';}catch(e){}
+let lockSaved=45,invSaved=false,ffbSaved=true,flipSaved=false;try{flipSaved=localStorage.getItem('rw.flip')==='1';lockSaved=+localStorage.getItem('rw.lock')||45;invSaved=localStorage.getItem('rw.inv3')==='1';ffbSaved=localStorage.getItem('rw.ffb')!=='0';}catch(e){}
 // each phone (tab) has its own id, so the game can tell the wheel phone from the AR viewer
 // pairing key from the QR code / link (kept for this tab, so a reload without it still works)
 let PAIR=new URLSearchParams(location.search).get('k')||'';try{if(PAIR)sessionStorage.setItem('rw.k',PAIR);else PAIR=sessionStorage.getItem('rw.k')||'';}catch(e){}
@@ -267,6 +267,9 @@ function onMotion(e){
   let d=angd(ang,screenRot()+S.quarter+S.trim);
   // held far past full lock for a while: the reference is a quarter turn off (e.g. the page did not rotate); re-take it
   if(Math.abs(d)>80){if(!S.farSince)S.farSince=performance.now();else if(performance.now()-S.farSince>1200){recenter();d=0;}}else S.farSince=0;
+  // Turning the phone clockwise (to the right, as seen by the driver) turns "up" the other way in the phone's own
+  // frame, so the gravity angle decreases: negate to make a right turn positive, as the game expects.
+  d=-d;
   if(S.inv)d=-d;
   S.angle=d;
 }
@@ -316,7 +319,7 @@ function calibrate(){
   recFlash(S.sim?'Reacquiring the screen':'Centred · looking for the sim');}
 $('bCal').onclick=calibrate;
 function syncOpts(){$('bLock').textContent='Lock '+S.lock+'°';$('bInv').setAttribute('aria-pressed',S.inv?'true':'false');$('bFfb').setAttribute('aria-pressed',S.ffb?'true':'false');$('bFlip').setAttribute('aria-pressed',S.yawInv?'true':'false');
-  try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv2',S.inv?'1':'0');localStorage.setItem('rw.ffb',S.ffb?'1':'0');localStorage.setItem('rw.flip',S.yawInv?'1':'0');}catch(e){}}
+  try{localStorage.setItem('rw.lock',S.lock);localStorage.setItem('rw.inv3',S.inv?'1':'0');localStorage.setItem('rw.ffb',S.ffb?'1':'0');localStorage.setItem('rw.flip',S.yawInv?'1':'0');}catch(e){}}
 $('bLock').onclick=()=>{S.lock=S.lock===30?45:S.lock===45?70:30;syncOpts();};
 $('bFfb').onclick=()=>{S.ffb=!S.ffb;if(!S.ffb&&navigator.vibrate)navigator.vibrate(0);syncOpts();};
 $('bFlip').onclick=()=>{S.yawInv=!S.yawInv;recenterAR();syncOpts();};
