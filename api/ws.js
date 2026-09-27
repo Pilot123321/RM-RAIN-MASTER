@@ -23,9 +23,10 @@ function phonesChanged(k) {
 
 // --- optional Redis bus. Message: instance id (12) + kind ('g' to games, 'w' to wheels, 'c' roster changed) + 'b'|'t' + payload
 let pub = null, sub = null;
-if (process.env.REDIS_URL) {
+const REDIS = process.env.REDIS_URL || process.env.KV_URL;   // Redis Cloud sets REDIS_URL, Upstash also KV_URL
+if (REDIS) {
   const { createClient } = require('redis');
-  pub = createClient({ url: process.env.REDIS_URL }); sub = pub.duplicate();
+  pub = createClient({ url: REDIS }); sub = pub.duplicate();
   pub.on('error', e => console.error('redis', e.message)); sub.on('error', e => console.error('redis sub', e.message));
   Promise.all([pub.connect(), sub.connect()]).catch(e => { console.error('redis off:', e.message); pub = sub = null; });
 }
