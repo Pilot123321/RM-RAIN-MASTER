@@ -6,10 +6,20 @@
   "outputDirectory": "public",
   "cleanUrls": true,
   "rewrites": [
-    { "source": "/", "destination": "/game.html" },
-    { "source": "/wheel", "destination": "/wheel.html" }
+    {
+      "source": "/",
+      "destination": "/game"
+    }
   ],
   "headers": [
-    { "source": "/(.*)\\.(js|css|wasm)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }] }
+    {
+      "source": "/(.*)\\.(js|css|wasm)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    }
   ]
 }
