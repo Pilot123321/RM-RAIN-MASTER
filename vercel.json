@@ -37,5 +37,40 @@
     "api/ws.js": {
       "maxDuration": 300
     }
-  }
+  },
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "look-ahead-radar.vercel.app"
+        }
+      ],
+      "destination": "https://rm-racing.vercel.app/:path*",
+      "permanent": false
+    },
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "look-ahead-radar-pilot123321s-projects.vercel.app"
+        }
+      ],
+      "destination": "https://rm-racing.vercel.app/:path*",
+      "permanent": false
+    },
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "look-ahead-radar-git-main-pilot123321s-projects.vercel.app"
+        }
+      ],
+      "destination": "https://rm-racing.vercel.app/:path*",
+      "permanent": false
+    }
+  ]
 }
